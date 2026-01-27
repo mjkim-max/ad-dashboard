@@ -2,14 +2,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-from streamlit_gsheets import GSheetsConnection
 
 # -----------------------------------------------------------------------------
 # [SETUP] 페이지 설정
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="광고 성과 관리 BI", page_icon="📈", layout="wide")
+
+# [핵심] Secrets 설정 없이 주소를 직접 입력 (이 방식이 가장 확실합니다)
+# 구글 시트 주소 (edit -> export 변환 로직 적용됨)
+META_SHEET_URL = "https://docs.google.com/spreadsheets/d/13PG6s372l1SucujsACowlihRqOl8YDY4wCv_PEYgPTU/edit?gid=29934845#gid=29934845"
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1jEB4zTYPb2mrxZGXriju6RymHo1nEMC8QIVzqgiHwdg/edit?gid=141038195#gid=141038195"
 
 # [COLOR] 색상 팔레트
 METRIC_COLORS = {
@@ -41,8 +44,22 @@ def update_filters(campaign, adgroup, creative):
     st.session_state['selected_creatives'] = [creative]
 
 # -----------------------------------------------------------------------------
-# 1. 함수 정의
+# 1. 함수 정의 (수정됨: CSV 직접 로드 방식)
 # -----------------------------------------------------------------------------
+def convert_google_sheet_url(url):
+    """구글 시트 URL을 CSV 다운로드 링크로 변환"""
+    try:
+        # /edit 부분을 /export?format=csv로 변경
+        if "/edit" in url:
+            base_url = url.split("/edit")[0]
+            # gid 파싱
+            if "gid=" in url:
+                gid = url.split("gid=")[1].split("#")[0]
+                return f"{base_url}/export?format=csv&gid={gid}"
+        return url
+    except:
+        return url
+
 @st.cache_data(ttl=600)
 def load_data():
     dfs = []
@@ -59,23 +76,27 @@ def load_data():
         '상태': 'Status', '소재 상태': 'Status', '광고 상태': 'Status'
     }
 
+    # [핵심 수정] st.connection 대신 pd.read_csv 사용 (Secrets 불필요)
     try:
-        conn_meta = st.connection("meta", type=GSheetsConnection)
-        df_meta = conn_meta.read() 
+        csv_url = convert_google_sheet_url(META_SHEET_URL)
+        df_meta = pd.read_csv(csv_url)
         df_meta = df_meta.rename(columns=rename_map)
         df_meta['Platform'] = 'Meta'
         if 'Status' not in df_meta.columns: df_meta['Status'] = 'On'
         dfs.append(df_meta)
-    except: pass
+    except Exception as e:
+        # 에러 발생 시 진짜 원인을 화면에 표시 (디버깅용)
+        st.error(f"메타 데이터 로드 실패: {e}")
 
     try:
-        conn_google = st.connection("google", type=GSheetsConnection)
-        df_google = conn_google.read()
+        csv_url = convert_google_sheet_url(GOOGLE_SHEET_URL)
+        df_google = pd.read_csv(csv_url)
         df_google = df_google.rename(columns=rename_map)
         df_google['Platform'] = 'Google'
         if 'Status' not in df_google.columns: df_google['Status'] = 'On'
         dfs.append(df_google)
-    except: pass
+    except Exception as e:
+        st.error(f"구글 데이터 로드 실패: {e}")
     
     if not dfs: return pd.DataFrame()
     df = pd.concat(dfs, ignore_index=True)
@@ -124,7 +145,7 @@ df = load_data()
 st.title("📊 광고 성과 관리 BI 대시보드")
 
 if df.empty:
-    st.error("데이터가 없습니다. secrets.toml 파일과 구글 시트 권한을 확인해주세요.")
+    st.warning("데이터를 불러오지 못했습니다. 위의 에러 메시지를 확인해주세요.")
     st.stop()
 
 # =============================================================================
