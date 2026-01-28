@@ -13,7 +13,7 @@ st.set_page_config(page_title="광고 성과 관리 BI", page_icon=None, layout=
 META_SHEET_URL = "https://docs.google.com/spreadsheets/d/13PG6s372l1SucujsACowlihRqOl8YDY4wCv_PEYgPTU/edit?gid=29934845#gid=29934845"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1jEB4zTYPb2mrxZGXriju6RymHo1nEMC8QIVzqgiHwdg/edit?gid=141038195#gid=141038195"
 
-# [세션 상태 초기화: 그래프 분석용]
+# [세션 상태 초기화]
 if 'chart_target_creative' not in st.session_state:
     st.session_state['chart_target_creative'] = None
 
@@ -127,7 +127,7 @@ def run_diagnosis(df, target_cpa):
     return pd.DataFrame(results)
 
 # -----------------------------------------------------------------------------
-# 3. 사이드바
+# 3. 사이드바 (사용자 요청 순서)
 # -----------------------------------------------------------------------------
 df_raw = load_data()
 
@@ -164,6 +164,7 @@ if c_g.checkbox("Google", True): sel_pl.append("Google")
 if 'Platform' in df_raw.columns: df_raw = df_raw[df_raw['Platform'].isin(sel_pl)]
 
 df_filtered = df_raw.copy()
+# [중요] 날짜 필터링 먼저 적용
 if len(date_range) == 2:
     df_filtered = df_filtered[(df_filtered['Date'].dt.date >= date_range[0]) & (df_filtered['Date'].dt.date <= date_range[1])]
 
@@ -194,7 +195,15 @@ if sel_crv: target_df = target_df[target_df['Creative_ID'].isin(sel_crv)]
 st.title("광고 성과 관리 대시보드")
 st.subheader("1. 캠페인 성과 진단")
 
-diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))]
+# 진단은 최신성을 위해 전체 데이터 중 최근 데이터만 사용하지만, 날짜 필터가 짧으면 그 안에서만
+diag_base = df_raw.copy()
+if len(date_range) == 2:
+    # 사용자 설정 기간 내 데이터로 진단 (최근 데이터가 없을 수 있으므로)
+    pass 
+else:
+    # 기본값
+    diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))]
+
 diag_res = run_diagnosis(diag_base, target_cpa_warning)
 
 def get_color_box(color):
@@ -265,8 +274,11 @@ target_creative = st.session_state['chart_target_creative']
 chart_data = target_df.copy()
 
 if target_creative:
-    st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다.")
-    chart_data = df_raw[df_raw['Creative_ID'] == target_creative]
+    st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다. (설정된 기간: {date_range[0]} ~ {date_range[1]})")
+    # [수정] 전체 df_raw가 아닌, 기간/필터가 적용된 df_filtered(또는 target_df)를 기반으로 필터링
+    # 하지만 소재는 target_df 필터 밖에 있을 수도 있으므로, df_filtered(기간+매체 필터됨)에서 가져옴
+    chart_data = df_filtered[df_filtered['Creative_ID'] == target_creative]
+    
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
         st.rerun()
@@ -274,7 +286,6 @@ if target_creative:
 # [1] 컨트롤 패널
 c_freq, c_opts, c_norm = st.columns([1, 2, 1])
 
-# 집계 기준 (라디오 버튼)
 freq_option = c_freq.radio("집계 기준", ["1일", "3일", "7일"], horizontal=True)
 freq_map = {"1일": "D", "3일": "3D", "7일": "W"}
 
@@ -286,15 +297,10 @@ metrics = c_opts.multiselect(
 use_norm = c_norm.checkbox("데이터 정규화 (0-100%)", value=True)
 
 if not chart_data.empty and metrics:
-    # ----------------------------------------------------
-    # 데이터 집계 (Resampling)
-    # ----------------------------------------------------
-    # 먼저 기간(Date)을 인덱스로 잡고 리샘플링
     agg_df = chart_data.set_index('Date').groupby(pd.Grouper(freq=freq_map[freq_option])).agg({
         'Cost': 'sum', 'Impressions': 'sum', 'Clicks': 'sum', 'Conversions': 'sum', 'Conversion_Value': 'sum'
-    }).reset_index().sort_values('Date', ascending=False) # 표는 최신순
+    }).reset_index().sort_values('Date', ascending=False)
 
-    # 파생 지표 계산
     agg_df['CPA'] = np.where(agg_df['Conversions']>0, agg_df['Cost']/agg_df['Conversions'], 0)
     agg_df['CPM'] = np.where(agg_df['Impressions']>0, agg_df['Cost']/agg_df['Impressions']*1000, 0)
     agg_df['CTR'] = np.where(agg_df['Impressions']>0, agg_df['Clicks']/agg_df['Impressions']*100, 0)
@@ -302,17 +308,13 @@ if not chart_data.empty and metrics:
     agg_df['CVR'] = np.where(agg_df['Clicks']>0, agg_df['Conversions']/agg_df['Clicks']*100, 0)
     agg_df['ROAS'] = np.where(agg_df['Cost']>0, agg_df['Conversion_Value']/agg_df['Cost']*100, 0)
 
-    # ----------------------------------------------------
-    # [그래프] Drawing
-    # ----------------------------------------------------
-    # 그래프는 시간순(과거->현재)으로 그리는 게 좋으니 정렬 다시 변경
+    # [그래프]
     plot_df = agg_df.sort_values('Date', ascending=True)
-    
     fig = go.Figure()
+    
     for m in metrics:
         y_data = plot_df[m]
         
-        # 정규화
         if use_norm and y_data.max() > 0:
             y_plot = (y_data - y_data.min()) / (y_data.max() - y_data.min()) * 100
             hover_temp = f"{m}: %{{customdata:,.2f}}"
@@ -325,27 +327,24 @@ if not chart_data.empty and metrics:
             customdata=y_data, hovertemplate=hover_temp
         ))
 
-    fig.update_layout(height=450, hovermode='x unified', title=f"추세 분석 ({freq_option} 기준)")
+    # [수정] 세로 그리드 라인 추가 (showgrid=True)
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', tickformat="%m-%d")
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+    fig.update_layout(
+        height=450, 
+        hovermode='x unified', 
+        title=f"추세 분석 ({freq_option} 기준)",
+        plot_bgcolor='white',
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-    # ----------------------------------------------------
     # [상세 데이터 표]
-    # ----------------------------------------------------
     st.markdown("#### 📋 상세 데이터")
-    
-    # 요청 순서: 날짜 / CPA / 비용 / 노출 / 클릭 / 전환 / 클릭률 / CPC / 전환율 / ROAS
     display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
-    
-    # 보여줄 데이터만 슬라이싱
     table_df = agg_df[display_cols].copy()
-    
-    # 날짜 포맷 (YYYY-MM-DD)
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
-    
-    # 컬럼명 한글 변환
     table_df.columns = ['날짜', 'CPA', '비용', '노출', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
 
-    # Streamlit 데이터프레임 (포맷팅 적용)
     st.dataframe(
         table_df,
         use_container_width=True,
@@ -363,6 +362,5 @@ if not chart_data.empty and metrics:
             "ROAS": st.column_config.NumberColumn("ROAS", format="%.0f%%"),
         }
     )
-
 else:
-    st.warning("데이터가 없거나 지표가 선택되지 않았습니다.")
+    st.warning("설정된 기간 내에 데이터가 없습니다.")
