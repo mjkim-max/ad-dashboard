@@ -75,7 +75,7 @@ def load_data():
     return df
 
 # -----------------------------------------------------------------------------
-# 2. 진단 로직 (Logic: CPA 낮을수록 Good, 높을수록 Bad)
+# 2. 진단 로직
 # -----------------------------------------------------------------------------
 def get_stats_for_period(df, days):
     max_date = df['Date'].max()
@@ -109,32 +109,17 @@ def run_diagnosis(df, target_cpa):
         best = camp_best.get(row['Campaign'], 99999999)
         status, title, detail = "White", "", ""
 
-        # [Logic Check]
-        # CPA > Target : 성과 나쁨 (비쌈) -> Red/Yellow
-        # CPA <= Target : 성과 좋음 (저렴) -> Blue/Green
-
         if (cpa3 > target_cpa) and (best <= target_cpa * 0.9):
-            # 내 CPA는 비싼데(>Target), 캠페인 에이스는 쌀 때(<=Target*0.9)
-            status = "Red"; title = "종료 추천 (상대적 열위)"; detail = f"Best([{best:,.0f}원]) 대비 고비용."
-        
+            status = "Red"; title = "종료 추천 (상대적 열위)"; detail = f"Best([{best:,.0f}원]) 대비 저조."
         elif (cpa7 <= target_cpa * 1.2) and (cpa3 > target_cpa) and (row['CPM_3'] < row['CPM_7']*0.9) and (row['CTR_3'] < row['CTR_7']*0.9):
-            # 7일은 괜찮았는데 3일만 비싸짐 + 근데 CPM/CTR 떨어짐 -> 탐색중
             status = "Yellow"; title = "보류 (타겟 탐색 신호)"; detail = "CPM/CTR 동반 하락. 탐색 중."
-        
         elif (cpa14 > target_cpa) and (cpa7 > target_cpa) and (cpa3 > target_cpa):
-            # 14/7/3일 전부 목표보다 비쌈 -> 진짜 못하는 애
             status = "Red"; title = "효율 저조 (지속 부진)"; detail = "2주간 목표 미달성."
-        
         elif (cpa7 > target_cpa) and (cpa3 <= target_cpa):
-            # 7일은 비쌌는데 3일은 목표 안쪽으로 들어옴(쌈) -> 개선
-            status = "Green"; title = "성과 개선 (반등 중)"; detail = "효율 목표 달성."
-        
+            status = "Green"; title = "성과 개선 (반등 중)"; detail = "효율 개선됨."
         elif (cpa3 <= target_cpa) and (cpa7 <= target_cpa):
-            # 둘 다 목표보다 쌈 -> 아주 잘함
             status = "Blue"; title = "성과 우수 (Best)"; detail = "목표 달성 중. 증액 검토."
-        
         elif (cpa7 <= target_cpa) and (cpa3 > target_cpa):
-            # 7일은 쌌는데 3일은 비싸짐 -> 흔들림
             status = "Yellow"; title = "최근 흔들림 (주의)"; detail = "일시적 저하인지 확인."
 
         row['Status_Color'] = status; row['Diag_Title'] = title; row['Diag_Detail'] = detail
@@ -142,7 +127,7 @@ def run_diagnosis(df, target_cpa):
     return pd.DataFrame(results)
 
 # -----------------------------------------------------------------------------
-# 3. 사이드바 (사용자 요청 순서 반영)
+# 3. 사이드바
 # -----------------------------------------------------------------------------
 df_raw = load_data()
 
@@ -178,12 +163,10 @@ if c_m.checkbox("Meta", True): sel_pl.append("Meta")
 if c_g.checkbox("Google", True): sel_pl.append("Google")
 if 'Platform' in df_raw.columns: df_raw = df_raw[df_raw['Platform'].isin(sel_pl)]
 
-# 날짜 필터링
 df_filtered = df_raw.copy()
 if len(date_range) == 2:
     df_filtered = df_filtered[(df_filtered['Date'].dt.date >= date_range[0]) & (df_filtered['Date'].dt.date <= date_range[1])]
 
-# 캠페인 > 그룹 > 소재 필터
 camps = ['전체'] + sorted(df_filtered['Campaign'].unique().tolist())
 sel_camp = st.sidebar.selectbox("캠페인필터", camps)
 
@@ -206,7 +189,7 @@ if sel_grp != '전체': target_df = target_df[target_df['AdGroup'] == sel_grp]
 if sel_crv: target_df = target_df[target_df['Creative_ID'].isin(sel_crv)]
 
 # -----------------------------------------------------------------------------
-# 4. 메인 화면: 진단 리포트 (분석 버튼 추가)
+# 4. 메인 화면: 진단 리포트
 # -----------------------------------------------------------------------------
 st.title("광고 성과 관리 대시보드")
 st.subheader("1. 캠페인 성과 진단")
@@ -230,13 +213,10 @@ if not diag_res.empty:
         has_blue = 'Blue' in grp['Status_Color'].values
         prio = 3
         
-        # [수정] 헤더 정보: 비용 삭제 / 3,7,14일 CPA 모두 표시
         c3 = grp['Cost_3'].sum(); cv3 = grp['Conversions_3'].sum()
         cpa3 = c3 / cv3 if cv3 > 0 else 0
-        
         c7 = grp['Cost_7'].sum(); cv7 = grp['Conversions_7'].sum()
         cpa7 = c7 / cv7 if cv7 > 0 else 0
-        
         c14 = grp['Cost_14'].sum(); cv14 = grp['Conversions_14'].sum()
         cpa14 = c14 / cv14 if cv14 > 0 else 0
         
@@ -260,7 +240,7 @@ if not diag_res.empty:
                         st.markdown(f"**{r['Creative_ID']}**")
                         cc1, cc2, cc3 = st.columns(3)
                         cc1.markdown(f"3일: [{r['CPA_3']:,.0f}원]")
-                        cc2.markdown(f"7일: [{r['CPA_7']:,.0f}원]") # caption -> markdown으로 변경 (가독성)
+                        cc2.markdown(f"7일: [{r['CPA_7']:,.0f}원]")
                         cc3.markdown(f"14일: [{r['CPA_14']:,.0f}원]")
                     with c2:
                         t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange" if r['Status_Color']=="Yellow" else "green"
@@ -271,15 +251,14 @@ if not diag_res.empty:
                         if st.button("분석하기", key=unique_key):
                             st.session_state['chart_target_creative'] = r['Creative_ID']
                             st.rerun()
-
 else:
     st.info("진단 데이터 부족")
 
 # -----------------------------------------------------------------------------
-# 5. 추세 그래프 (선택된 소재 분석)
+# 5. 추세 그래프 & 상세 표 (선택된 소재 분석)
 # -----------------------------------------------------------------------------
 st.markdown("---")
-st.subheader("2. 지표별 추세 그래프")
+st.subheader("2. 지표별 추세 및 상세 분석")
 
 # 분석 대상 소재 확인
 target_creative = st.session_state['chart_target_creative']
@@ -287,39 +266,53 @@ chart_data = target_df.copy()
 
 if target_creative:
     st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다.")
-    chart_data = df_raw[df_raw['Creative_ID'] == target_creative] # 전체 데이터에서 해당 소재만 가져옴
+    chart_data = df_raw[df_raw['Creative_ID'] == target_creative]
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
         st.rerun()
 
-# 그래프 컨트롤
-c_opts, c_norm = st.columns([3, 1])
+# [1] 컨트롤 패널
+c_freq, c_opts, c_norm = st.columns([1, 2, 1])
+
+# 집계 기준 (라디오 버튼)
+freq_option = c_freq.radio("집계 기준", ["1일", "3일", "7일"], horizontal=True)
+freq_map = {"1일": "D", "3일": "3D", "7일": "W"}
+
 metrics = c_opts.multiselect(
-    "지표 선택 (다중 선택 가능)", 
+    "지표 선택", 
     ['Impressions', 'CTR', 'CPM', 'CPA', 'Cost', 'Conversions', 'ROAS'], 
     default=['Impressions', 'CTR', 'CPM']
 )
-use_norm = c_norm.checkbox("데이터 정규화 (0-100%)", value=True, help="단위가 다른 지표(예: CTR과 노출수)를 한 눈에 비교하기 위해 0~100 범위로 변환합니다.")
+use_norm = c_norm.checkbox("데이터 정규화 (0-100%)", value=True)
 
 if not chart_data.empty and metrics:
-    fig = go.Figure()
-    
-    # 데이터 집계 (일별)
-    daily = chart_data.groupby('Date').agg({
-        'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum', 'Clicks': 'sum', 'Conversion_Value': 'sum'
-    }).reset_index().sort_values('Date')
-    
-    # 파생 지표 계산
-    daily['CPA'] = np.where(daily['Conversions']>0, daily['Cost']/daily['Conversions'], 0)
-    daily['CPM'] = np.where(daily['Impressions']>0, daily['Cost']/daily['Impressions']*1000, 0)
-    daily['CTR'] = np.where(daily['Impressions']>0, daily['Clicks']/daily['Impressions']*100, 0)
-    daily['ROAS'] = np.where(daily['Cost']>0, daily['Conversion_Value']/daily['Cost']*100, 0)
+    # ----------------------------------------------------
+    # 데이터 집계 (Resampling)
+    # ----------------------------------------------------
+    # 먼저 기간(Date)을 인덱스로 잡고 리샘플링
+    agg_df = chart_data.set_index('Date').groupby(pd.Grouper(freq=freq_map[freq_option])).agg({
+        'Cost': 'sum', 'Impressions': 'sum', 'Clicks': 'sum', 'Conversions': 'sum', 'Conversion_Value': 'sum'
+    }).reset_index().sort_values('Date', ascending=False) # 표는 최신순
 
+    # 파생 지표 계산
+    agg_df['CPA'] = np.where(agg_df['Conversions']>0, agg_df['Cost']/agg_df['Conversions'], 0)
+    agg_df['CPM'] = np.where(agg_df['Impressions']>0, agg_df['Cost']/agg_df['Impressions']*1000, 0)
+    agg_df['CTR'] = np.where(agg_df['Impressions']>0, agg_df['Clicks']/agg_df['Impressions']*100, 0)
+    agg_df['CPC'] = np.where(agg_df['Clicks']>0, agg_df['Cost']/agg_df['Clicks'], 0)
+    agg_df['CVR'] = np.where(agg_df['Clicks']>0, agg_df['Conversions']/agg_df['Clicks']*100, 0)
+    agg_df['ROAS'] = np.where(agg_df['Cost']>0, agg_df['Conversion_Value']/agg_df['Cost']*100, 0)
+
+    # ----------------------------------------------------
+    # [그래프] Drawing
+    # ----------------------------------------------------
+    # 그래프는 시간순(과거->현재)으로 그리는 게 좋으니 정렬 다시 변경
+    plot_df = agg_df.sort_values('Date', ascending=True)
+    
+    fig = go.Figure()
     for m in metrics:
-        y_data = daily[m]
-        y_name = m
+        y_data = plot_df[m]
         
-        # 정규화 로직
+        # 정규화
         if use_norm and y_data.max() > 0:
             y_plot = (y_data - y_data.min()) / (y_data.max() - y_data.min()) * 100
             hover_temp = f"{m}: %{{customdata:,.2f}}"
@@ -328,11 +321,48 @@ if not chart_data.empty and metrics:
             hover_temp = f"{m}: %{{y:,.2f}}"
 
         fig.add_trace(go.Scatter(
-            x=daily['Date'], y=y_plot, mode='lines+markers', name=y_name,
+            x=plot_df['Date'], y=y_plot, mode='lines+markers', name=m,
             customdata=y_data, hovertemplate=hover_temp
         ))
 
-    fig.update_layout(height=450, hovermode='x unified', title=f"'{target_creative or '선택된 필터'}' 추세 분석")
+    fig.update_layout(height=450, hovermode='x unified', title=f"추세 분석 ({freq_option} 기준)")
     st.plotly_chart(fig, use_container_width=True)
+
+    # ----------------------------------------------------
+    # [상세 데이터 표]
+    # ----------------------------------------------------
+    st.markdown("#### 📋 상세 데이터")
+    
+    # 요청 순서: 날짜 / CPA / 비용 / 노출 / 클릭 / 전환 / 클릭률 / CPC / 전환율 / ROAS
+    display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
+    
+    # 보여줄 데이터만 슬라이싱
+    table_df = agg_df[display_cols].copy()
+    
+    # 날짜 포맷 (YYYY-MM-DD)
+    table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
+    
+    # 컬럼명 한글 변환
+    table_df.columns = ['날짜', 'CPA', '비용', '노출', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
+
+    # Streamlit 데이터프레임 (포맷팅 적용)
+    st.dataframe(
+        table_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "날짜": st.column_config.TextColumn("날짜"),
+            "CPA": st.column_config.NumberColumn("CPA", format="%d원"),
+            "비용": st.column_config.NumberColumn("비용", format="%d원"),
+            "노출": st.column_config.NumberColumn("노출", format="%d"),
+            "클릭": st.column_config.NumberColumn("클릭", format="%d"),
+            "전환": st.column_config.NumberColumn("전환", format="%d"),
+            "클릭률": st.column_config.NumberColumn("클릭률", format="%.2f%%"),
+            "CPC": st.column_config.NumberColumn("CPC", format="%d원"),
+            "전환율": st.column_config.NumberColumn("전환율", format="%.2f%%"),
+            "ROAS": st.column_config.NumberColumn("ROAS", format="%.0f%%"),
+        }
+    )
+
 else:
     st.warning("데이터가 없거나 지표가 선택되지 않았습니다.")
