@@ -75,7 +75,7 @@ def load_data():
     return df
 
 # -----------------------------------------------------------------------------
-# 2. 진단 로직 (사용자 요청 반영: 3/7/14일 절대평가)
+# 2. 진단 로직 (절대평가 Only)
 # -----------------------------------------------------------------------------
 def get_stats_for_period(df, days):
     max_date = df['Date'].max()
@@ -90,7 +90,7 @@ def get_stats_for_period(df, days):
 def run_diagnosis(df, target_cpa):
     if df.empty: return pd.DataFrame()
     s3, s7, s14 = get_stats_for_period(df, 3), get_stats_for_period(df, 7), get_stats_for_period(df, 14)
-    s_all = get_stats_for_period(df, 9999) # 기본 정보용
+    s_all = get_stats_for_period(df, 9999) 
 
     m = s3.merge(s7, on=['Campaign','AdGroup','Creative_ID'], suffixes=('_3', '_7'), how='left')
     m = m.merge(s14, on=['Campaign','AdGroup','Creative_ID'], how='left')
@@ -102,36 +102,34 @@ def run_diagnosis(df, target_cpa):
     results = []
 
     for _, row in m.iterrows():
+        # 비용 3000원 미만은 진단 제외
         if row['Cost_3'] < 3000: continue
-        cpa3, cpa7, cpa14 = row['CPA_3'], row['CPA_7'], row['CPA_14']
         
+        cpa3, cpa7, cpa14 = row['CPA_3'], row['CPA_7'], row['CPA_14']
         status, title, detail = "White", "", ""
 
-        # [Logic Check]
-        # CPA <= Target (Good/Cheap)
-        # CPA > Target (Bad/Expensive)
-
-        # 1. 🔵 성과 우수 (All Good)
+        # [Logic: 목표 CPA 기준 절대평가]
+        # 1. 성과 우수 (전부 저렴)
         if (cpa14 <= target_cpa) and (cpa7 <= target_cpa) and (cpa3 <= target_cpa):
             status = "Blue"
             title = "성과 우수 (Best)"
-            detail = "14일/7일/3일 모두 목표 달성. 증액 검토."
+            detail = "14일/7일/3일 모두 목표 달성."
 
-        # 2. 🔴 종료 추천 (All Bad)
+        # 2. 종료 추천 (전부 비쌈)
         elif (cpa14 > target_cpa) and (cpa7 > target_cpa) and (cpa3 > target_cpa):
             status = "Red"
             title = "종료 추천 (지속 부진)"
-            detail = "14일/7일/3일 모두 목표 미달성. 효율 개선 없음."
+            detail = "14일/7일/3일 모두 목표 미달성."
 
-        # 3. 🟡 판별 필요 (Mixed)
+        # 3. 판별 필요 (섞임)
         else:
             status = "Yellow"
             if cpa3 <= target_cpa:
                 title = "성장 가능성 (반등)"
-                detail = "과거엔 나빴으나 최근 3일 성과 개선됨."
+                detail = "과거엔 목표 초과했으나, 최근 3일은 목표 달성."
             else:
                 title = "관망 필요 (최근 저하)"
-                detail = "과거엔 좋았으나 최근 3일 성과 하락."
+                detail = "과거엔 좋았으나, 최근 3일은 목표 초과."
 
         row['Status_Color'] = status; row['Diag_Title'] = title; row['Diag_Detail'] = detail
         results.append(row)
@@ -205,7 +203,6 @@ if sel_crv: target_df = target_df[target_df['Creative_ID'].isin(sel_crv)]
 st.title("광고 성과 관리 대시보드")
 st.subheader("1. 캠페인 성과 진단")
 
-# 진단은 최신성을 위해 최근 14일 데이터 기준
 diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))]
 diag_res = run_diagnosis(diag_base, target_cpa_warning)
 
@@ -220,40 +217,55 @@ if not diag_res.empty:
     sorted_camps = []
     
     for c_name, grp in camp_grps:
-        # 우선순위: Red(종료) -> Yellow(판별) -> Blue(우수)
+        # 우선순위: Red(1) -> Yellow(2) -> Blue(3)
         has_red = 'Red' in grp['Status_Color'].values
         has_yellow = 'Yellow' in grp['Status_Color'].values
         
-        prio = 3
-        # 헤더 색상 결정: 3개 다 안맞는게 하나라도 있으면(Red) -> Red, 판별 필요하면 -> Yellow, 아니면 Blue/Grey
-        # 사용자 요청: 3개가 다 기준에 맞으면 파란색 / 3개가 다 안맞으면 빨간색
-        
-        # 캠페인 대표 색상 로직
         if has_red: 
-            prio = 1; h_col = ":red" # 내부에 종료 추천이 하나라도 있으면 빨간색 표시
+            prio = 1; h_col = ":red"
         elif has_yellow: 
-            prio = 2; h_col = ":orange" # 내부에 판별 필요가 있으면 노란색
+            prio = 2; h_col = ":orange"
         else: 
-            prio = 3; h_col = ":blue" # 모두가 파란색(우수)일 때 파란색
+            prio = 3; h_col = ":blue"
         
-        # 헤더 정보: 비용 제거, 기간별 CPA만
+        # 캠페인 전체 평균 계산
         c3 = grp['Cost_3'].sum(); cv3 = grp['Conversions_3'].sum()
         cpa3 = c3 / cv3 if cv3 > 0 else 0
         c7 = grp['Cost_7'].sum(); cv7 = grp['Conversions_7'].sum()
         cpa7 = c7 / cv7 if cv7 > 0 else 0
         c14 = grp['Cost_14'].sum(); cv14 = grp['Conversions_14'].sum()
         cpa14 = c14 / cv14 if cv14 > 0 else 0
+
+        # 헤더는 깔끔하게 이름만!
+        h_txt = c_name
         
-        h_txt = f"{c_name} (3일:[{cpa3:,.0f}] 7일:[{cpa7:,.0f}] 14일:[{cpa14:,.0f}])"
-        
-        sorted_camps.append({'name': c_name, 'data': grp, 'prio': prio, 'header': h_txt, 'color': h_col})
+        sorted_camps.append({
+            'name': c_name, 'data': grp, 'prio': prio, 'header': h_txt, 'color': h_col,
+            'stats': (cpa3, cpa7, cpa14)
+        })
     
     sorted_camps.sort(key=lambda x: x['prio'])
 
     for item in sorted_camps:
         if sel_camp != '전체' and item['name'] != sel_camp: continue
         
+        # 1. 헤더 (이름만 깔끔하게)
         with st.expander(f"{item['color']}[{item['header']}]", expanded=False):
+            
+            # 2. 내부 상단: 캠페인 요약 (큰 숫자)
+            st.markdown("##### 📊 캠페인 요약")
+            sc1, sc2, sc3 = st.columns(3)
+            cpa3, cpa7, cpa14 = item['stats']
+            
+            # Metric으로 크게 표시
+            sc1.metric("3일 평균 CPA", f"{cpa3:,.0f}원")
+            sc2.metric("7일 평균 CPA", f"{cpa7:,.0f}원")
+            sc3.metric("14일 평균 CPA", f"{cpa14:,.0f}원")
+            
+            st.divider()
+
+            # 3. 소재 리스트
+            st.markdown("##### 📂 소재별 진단")
             for _, r in item['data'].iterrows():
                 with get_color_box(r['Status_Color']):
                     c1, c2, c3 = st.columns([2, 1.5, 0.5])
@@ -286,7 +298,6 @@ chart_data = target_df.copy()
 
 if target_creative:
     st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다. (설정된 기간: {date_range[0]} ~ {date_range[1]})")
-    # 필터 적용된 데이터에서 해당 소재 데이터 추출
     chart_data = df_filtered[df_filtered['Creative_ID'] == target_creative]
     
     if st.button("전체 목록으로 차트 초기화"):
