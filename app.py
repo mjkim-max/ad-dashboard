@@ -75,7 +75,7 @@ def load_data():
     return df
 
 # -----------------------------------------------------------------------------
-# 2. 진단 로직
+# 2. 진단 로직 (Logic: CPA 낮을수록 Good, 높을수록 Bad)
 # -----------------------------------------------------------------------------
 def get_stats_for_period(df, days):
     max_date = df['Date'].max()
@@ -109,17 +109,32 @@ def run_diagnosis(df, target_cpa):
         best = camp_best.get(row['Campaign'], 99999999)
         status, title, detail = "White", "", ""
 
+        # [Logic Check]
+        # CPA > Target : 성과 나쁨 (비쌈) -> Red/Yellow
+        # CPA <= Target : 성과 좋음 (저렴) -> Blue/Green
+
         if (cpa3 > target_cpa) and (best <= target_cpa * 0.9):
-            status = "Red"; title = "종료 추천 (상대적 열위)"; detail = f"Best([{best:,.0f}원]) 대비 저조."
+            # 내 CPA는 비싼데(>Target), 캠페인 에이스는 쌀 때(<=Target*0.9)
+            status = "Red"; title = "종료 추천 (상대적 열위)"; detail = f"Best([{best:,.0f}원]) 대비 고비용."
+        
         elif (cpa7 <= target_cpa * 1.2) and (cpa3 > target_cpa) and (row['CPM_3'] < row['CPM_7']*0.9) and (row['CTR_3'] < row['CTR_7']*0.9):
+            # 7일은 괜찮았는데 3일만 비싸짐 + 근데 CPM/CTR 떨어짐 -> 탐색중
             status = "Yellow"; title = "보류 (타겟 탐색 신호)"; detail = "CPM/CTR 동반 하락. 탐색 중."
+        
         elif (cpa14 > target_cpa) and (cpa7 > target_cpa) and (cpa3 > target_cpa):
+            # 14/7/3일 전부 목표보다 비쌈 -> 진짜 못하는 애
             status = "Red"; title = "효율 저조 (지속 부진)"; detail = "2주간 목표 미달성."
+        
         elif (cpa7 > target_cpa) and (cpa3 <= target_cpa):
-            status = "Green"; title = "성과 개선 (반등 중)"; detail = "효율 개선됨."
+            # 7일은 비쌌는데 3일은 목표 안쪽으로 들어옴(쌈) -> 개선
+            status = "Green"; title = "성과 개선 (반등 중)"; detail = "효율 목표 달성."
+        
         elif (cpa3 <= target_cpa) and (cpa7 <= target_cpa):
+            # 둘 다 목표보다 쌈 -> 아주 잘함
             status = "Blue"; title = "성과 우수 (Best)"; detail = "목표 달성 중. 증액 검토."
+        
         elif (cpa7 <= target_cpa) and (cpa3 > target_cpa):
+            # 7일은 쌌는데 3일은 비싸짐 -> 흔들림
             status = "Yellow"; title = "최근 흔들림 (주의)"; detail = "일시적 저하인지 확인."
 
         row['Status_Color'] = status; row['Diag_Title'] = title; row['Diag_Detail'] = detail
@@ -214,11 +229,18 @@ if not diag_res.empty:
         has_red = 'Red' in grp['Status_Color'].values
         has_blue = 'Blue' in grp['Status_Color'].values
         prio = 3
-        # 헤더 정보 계산
+        
+        # [수정] 헤더 정보: 비용 삭제 / 3,7,14일 CPA 모두 표시
         c3 = grp['Cost_3'].sum(); cv3 = grp['Conversions_3'].sum()
         cpa3 = c3 / cv3 if cv3 > 0 else 0
         
-        h_txt = f"{c_name} (3일 CPA: [{cpa3:,.0f}원] | 비용: [{c3/10000:,.0f}만])"
+        c7 = grp['Cost_7'].sum(); cv7 = grp['Conversions_7'].sum()
+        cpa7 = c7 / cv7 if cv7 > 0 else 0
+        
+        c14 = grp['Cost_14'].sum(); cv14 = grp['Conversions_14'].sum()
+        cpa14 = c14 / cv14 if cv14 > 0 else 0
+        
+        h_txt = f"{c_name} (3일:[{cpa3:,.0f}] 7일:[{cpa7:,.0f}] 14일:[{cpa14:,.0f}])"
         h_col = ":grey"
         if has_red: prio = 1; h_col = ":red"
         elif has_blue: prio = 2; h_col = ":blue"
@@ -238,14 +260,13 @@ if not diag_res.empty:
                         st.markdown(f"**{r['Creative_ID']}**")
                         cc1, cc2, cc3 = st.columns(3)
                         cc1.markdown(f"3일: [{r['CPA_3']:,.0f}원]")
-                        cc2.caption(f"7일: [{r['CPA_7']:,.0f}원]")
-                        cc3.caption(f"14일: [{r['CPA_14']:,.0f}원]")
+                        cc2.markdown(f"7일: [{r['CPA_7']:,.0f}원]") # caption -> markdown으로 변경 (가독성)
+                        cc3.markdown(f"14일: [{r['CPA_14']:,.0f}원]")
                     with c2:
                         t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange" if r['Status_Color']=="Yellow" else "green"
                         st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
                         st.caption(r['Diag_Detail'])
                     with c3:
-                        # [FIX] 버튼 키를 캠페인+그룹+소재ID로 유니크하게 생성하여 에러 방지
                         unique_key = f"btn_{item['name']}_{r['AdGroup']}_{r['Creative_ID']}"
                         if st.button("분석하기", key=unique_key):
                             st.session_state['chart_target_creative'] = r['Creative_ID']
