@@ -245,8 +245,9 @@ if not diag_res.empty:
                         st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
                         st.caption(r['Diag_Detail'])
                     with c3:
-                        # [핵심] 분석하기 버튼
-                        if st.button("분석하기", key=f"btn_{r['Creative_ID']}"):
+                        # [FIX] 버튼 키를 캠페인+그룹+소재ID로 유니크하게 생성하여 에러 방지
+                        unique_key = f"btn_{item['name']}_{r['AdGroup']}_{r['Creative_ID']}"
+                        if st.button("분석하기", key=unique_key):
                             st.session_state['chart_target_creative'] = r['Creative_ID']
                             st.rerun()
 
