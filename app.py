@@ -5,9 +5,18 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 
 # -----------------------------------------------------------------------------
-# [SETUP] 페이지 설정
+# [SETUP] 페이지 설정 (여백 최소화 CSS 주입)
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="광고 성과 관리 BI", page_icon=None, layout="wide")
+
+# CSS로 불필요한 여백 강제 제거
+st.markdown("""
+<style>
+    .block-container {padding-top: 1rem; padding-bottom: 2rem;}
+    div[data-testid="stExpanderDetails"] {padding-top: 0.5rem; padding-bottom: 0.5rem;}
+    p {margin-bottom: 0.2rem;}
+</style>
+""", unsafe_allow_html=True)
 
 # [주소 설정]
 META_SHEET_URL = "https://docs.google.com/spreadsheets/d/13PG6s372l1SucujsACowlihRqOl8YDY4wCv_PEYgPTU/edit?gid=29934845#gid=29934845"
@@ -77,10 +86,12 @@ def load_data():
     # [데이터 보정]
     if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
     if 'Age' not in df.columns: df['Age'] = 'Unknown'
+    
+    # 결측치 처리
     df['Gender'] = df['Gender'].fillna('Unknown')
     df['Age'] = df['Age'].fillna('Unknown')
     
-    # 데이터 정규화 (Male->남성, Female->여성)
+    # 데이터 정규화
     df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
             
     return df
@@ -257,20 +268,22 @@ if not diag_res.empty:
                 st.metric("CPA", f"{cpa:,.0f}원")
                 st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
             
-            st.divider()
+            st.markdown("<hr style='margin: 10px 0; border: none; border-top: 1px solid #f0f2f6;'>", unsafe_allow_html=True)
 
-            # 소재별 진단 (Grid Layout)
             st.markdown("##### 소재별 진단")
             
             for idx, (_, r) in enumerate(item['data'].iterrows()):
                 st.markdown(f"#### {r['Creative_ID']}")
                 
-                # 4분할 그리드 레이아웃
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
                 
+                # [수정] 줄바꿈(  \n)을 활용하여 줄 간격을 좁힘
                 def format_stat_block(label, cpa, cost, conv):
                     cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
-                    return f"**{label}**\n\n**CPA** {cpa_val}원\n\n**비용** {cost:,.0f}원\n\n**전환** {conv:,.0f}"
+                    return f"""
+                    **{label}** CPA **{cpa_val}원** 비용 {cost:,.0f}원  
+                    전환 {conv:,.0f}
+                    """
 
                 with col1:
                     st.markdown(format_stat_block("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']))
@@ -288,7 +301,7 @@ if not diag_res.empty:
                         st.session_state['chart_target_creative'] = r['Creative_ID']
                         st.rerun()
                 
-                st.divider()
+                st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid #f0f2f6;'>", unsafe_allow_html=True)
 
 else:
     st.info("진단 데이터 부족")
@@ -362,7 +375,7 @@ if not chart_data.empty and metrics:
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
     table_df.columns = ['날짜', 'CPA', '비용', '노출', 'CPM', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
 
-    # [수정] 오류가 발생했던 format 문자열 수정 (안전하게 작은따옴표 사용)
+    # [수정] Syntax Error 방지를 위해 format 문자열의 따옴표를 통일
     st.dataframe(
         table_df,
         use_container_width=True,
