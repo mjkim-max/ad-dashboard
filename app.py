@@ -9,12 +9,12 @@ from datetime import datetime, timedelta, date
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="광고 성과 관리 BI", page_icon=None, layout="wide")
 
-# CSS로 불필요한 여백 강제 제거
+# CSS로 텍스트 줄간격 좁히기
 st.markdown("""
 <style>
     .block-container {padding-top: 1rem; padding-bottom: 2rem;}
     div[data-testid="stExpanderDetails"] {padding-top: 0.5rem; padding-bottom: 0.5rem;}
-    p {margin-bottom: 0.2rem;}
+    p {margin-bottom: 0.1rem;} 
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,8 +86,6 @@ def load_data():
     # [데이터 보정]
     if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
     if 'Age' not in df.columns: df['Age'] = 'Unknown'
-    
-    # 결측치 처리
     df['Gender'] = df['Gender'].fillna('Unknown')
     df['Age'] = df['Age'].fillna('Unknown')
     
@@ -250,26 +248,23 @@ if not diag_res.empty:
         if sel_camp != '전체' and item['name'] != sel_camp: continue
         
         with st.expander(f"{item['color']}[{item['header']}]", expanded=False):
+            # [수정] 캠페인 요약도 세로형으로 변경
             st.markdown("##### 캠페인 기간별 성과 요약")
             c_3d, c_7d, c_14d = st.columns(3)
             with c_3d:
-                st.markdown("**최근 3일**")
+                # metric 대신 markdown 사용 (줄바꿈 제어 위해)
                 cpa, cost, conv = item['stats_3']
-                st.metric("CPA", f"{cpa:,.0f}원")
-                st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
+                st.markdown(f"**최근 3일** \nCPA **{cpa:,.0f}원** \n비용 {cost:,.0f}원  \n전환 {conv:,.0f}")
             with c_7d:
-                st.markdown("**최근 7일**")
                 cpa, cost, conv = item['stats_7']
-                st.metric("CPA", f"{cpa:,.0f}원")
-                st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
+                st.markdown(f"**최근 7일** \nCPA **{cpa:,.0f}원** \n비용 {cost:,.0f}원  \n전환 {conv:,.0f}")
             with c_14d:
-                st.markdown("**최근 14일**")
                 cpa, cost, conv = item['stats_14']
-                st.metric("CPA", f"{cpa:,.0f}원")
-                st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
+                st.markdown(f"**최근 14일** \nCPA **{cpa:,.0f}원** \n비용 {cost:,.0f}원  \n전환 {conv:,.0f}")
             
             st.markdown("<hr style='margin: 10px 0; border: none; border-top: 1px solid #f0f2f6;'>", unsafe_allow_html=True)
 
+            # [수정] 소재별 진단 - 엔터(줄바꿈) 확실하게 적용
             st.markdown("##### 소재별 진단")
             
             for idx, (_, r) in enumerate(item['data'].iterrows()):
@@ -277,11 +272,12 @@ if not diag_res.empty:
                 
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
                 
-                # [수정] 줄바꿈(  \n)을 활용하여 줄 간격을 좁힘
+                # 강제 줄바꿈(  \n)을 사용한 포맷팅 함수
                 def format_stat_block(label, cpa, cost, conv):
                     cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
                     return f"""
-                    **{label}** CPA **{cpa_val}원** 비용 {cost:,.0f}원  
+                    **{label}** CPA {cpa_val}원  
+                    비용 {cost:,.0f}원  
                     전환 {conv:,.0f}
                     """
 
@@ -375,7 +371,6 @@ if not chart_data.empty and metrics:
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
     table_df.columns = ['날짜', 'CPA', '비용', '노출', 'CPM', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
 
-    # [수정] Syntax Error 방지를 위해 format 문자열의 따옴표를 통일
     st.dataframe(
         table_df,
         use_container_width=True,
@@ -406,7 +401,6 @@ if not chart_data.empty and metrics:
     if valid_gender_check.empty:
         st.info("현재 선택된 소재(또는 구글 애즈)는 성별/연령 상세 데이터를 제공하지 않습니다.")
     else:
-        # 그룹핑
         demog_agg = chart_data.groupby(['Age', 'Gender']).agg({
             'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
         }).reset_index()
@@ -415,7 +409,6 @@ if not chart_data.empty and metrics:
         male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
         female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
         
-        # 1. 상단: 전환수 막대 그래프
         title_txt = f"{target_creative} 성별/연령별 전환수 비교" if target_creative else "성별/연령별 전환수 비교"
         st.markdown(f"#### {title_txt}")
         
@@ -430,7 +423,6 @@ if not chart_data.empty and metrics:
         )
         st.plotly_chart(fig_conv, use_container_width=True)
         
-        # 2. 하단: 데이터 그리드 (CPA, 비용)
         st.markdown("#### 상세 데이터 그리드")
         def create_pivot_view(metric, fmt="{:,.0f}"):
             piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
