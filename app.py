@@ -9,12 +9,13 @@ from datetime import datetime, timedelta, date
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="광고 성과 관리 BI", page_icon=None, layout="wide")
 
-# CSS로 텍스트 줄간격 좁히기
+# CSS로 텍스트 줄간격 좁히기 & 여백 조정
 st.markdown("""
 <style>
     .block-container {padding-top: 1rem; padding-bottom: 2rem;}
     div[data-testid="stExpanderDetails"] {padding-top: 0.5rem; padding-bottom: 0.5rem;}
-    p {margin-bottom: 0.1rem;} 
+    p {margin-bottom: 0px !important;} 
+    hr {margin: 0.5rem 0 !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -248,23 +249,33 @@ if not diag_res.empty:
         if sel_camp != '전체' and item['name'] != sel_camp: continue
         
         with st.expander(f"{item['color']}[{item['header']}]", expanded=False):
-            # [수정] 캠페인 요약도 세로형으로 변경
+            # [수정] 캠페인 요약 - 세로 줄바꿈 확실하게 적용
             st.markdown("##### 캠페인 기간별 성과 요약")
             c_3d, c_7d, c_14d = st.columns(3)
+            
+            def fmt_head(label, cpa, cost, conv):
+                return f"""
+                <div style="line-height:1.4;">
+                <strong>{label}</strong><br>
+                CPA <strong>{cpa:,.0f}원</strong><br>
+                비용 {cost:,.0f}원<br>
+                전환 {conv:,.0f}
+                </div>
+                """
+            
             with c_3d:
-                # metric 대신 markdown 사용 (줄바꿈 제어 위해)
                 cpa, cost, conv = item['stats_3']
-                st.markdown(f"**최근 3일** \nCPA **{cpa:,.0f}원** \n비용 {cost:,.0f}원  \n전환 {conv:,.0f}")
+                st.markdown(fmt_head("최근 3일", cpa, cost, conv), unsafe_allow_html=True)
             with c_7d:
                 cpa, cost, conv = item['stats_7']
-                st.markdown(f"**최근 7일** \nCPA **{cpa:,.0f}원** \n비용 {cost:,.0f}원  \n전환 {conv:,.0f}")
+                st.markdown(fmt_head("최근 7일", cpa, cost, conv), unsafe_allow_html=True)
             with c_14d:
                 cpa, cost, conv = item['stats_14']
-                st.markdown(f"**최근 14일** \nCPA **{cpa:,.0f}원** \n비용 {cost:,.0f}원  \n전환 {conv:,.0f}")
+                st.markdown(fmt_head("최근 14일", cpa, cost, conv), unsafe_allow_html=True)
             
             st.markdown("<hr style='margin: 10px 0; border: none; border-top: 1px solid #f0f2f6;'>", unsafe_allow_html=True)
 
-            # [수정] 소재별 진단 - 엔터(줄바꿈) 확실하게 적용
+            # [수정] 소재별 진단 - 엔터(줄바꿈) 확실하게 적용 (HTML 활용)
             st.markdown("##### 소재별 진단")
             
             for idx, (_, r) in enumerate(item['data'].iterrows()):
@@ -272,21 +283,24 @@ if not diag_res.empty:
                 
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
                 
-                # 강제 줄바꿈(  \n)을 사용한 포맷팅 함수
+                # 강제 줄바꿈을 위해 <br> 태그 사용
                 def format_stat_block(label, cpa, cost, conv):
                     cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
                     return f"""
-                    **{label}** CPA {cpa_val}원  
-                    비용 {cost:,.0f}원  
+                    <div style="line-height:1.6;">
+                    <strong>{label}</strong><br>
+                    CPA <strong>{cpa_val}원</strong><br>
+                    비용 {cost:,.0f}원<br>
                     전환 {conv:,.0f}
+                    </div>
                     """
 
                 with col1:
-                    st.markdown(format_stat_block("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']))
+                    st.markdown(format_stat_block("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']), unsafe_allow_html=True)
                 with col2:
-                    st.markdown(format_stat_block("7일", r['CPA_7'], r['Cost_7'], r['Conversions_7']))
+                    st.markdown(format_stat_block("7일", r['CPA_7'], r['Cost_7'], r['Conversions_7']), unsafe_allow_html=True)
                 with col3:
-                    st.markdown(format_stat_block("14일", r['CPA_14'], r['Cost_14'], r['Conversions_14']))
+                    st.markdown(format_stat_block("14일", r['CPA_14'], r['Cost_14'], r['Conversions_14']), unsafe_allow_html=True)
                 with col4:
                     t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange"
                     st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
@@ -371,6 +385,7 @@ if not chart_data.empty and metrics:
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
     table_df.columns = ['날짜', 'CPA', '비용', '노출', 'CPM', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
 
+    # [수정] 따옴표 문제 해결
     st.dataframe(
         table_df,
         use_container_width=True,
@@ -383,10 +398,10 @@ if not chart_data.empty and metrics:
             "CPM": st.column_config.NumberColumn("CPM", format="%d원"),
             "클릭": st.column_config.NumberColumn("클릭", format="%d"),
             "전환": st.column_config.NumberColumn("전환", format="%d"),
-            "클릭률": st.column_config.NumberColumn("클릭률", format='%.2f%%'),
+            "클릭률": st.column_config.NumberColumn("클릭률", format="%.2f%%"),
             "CPC": st.column_config.NumberColumn("CPC", format="%d원"),
-            "전환율": st.column_config.NumberColumn("전환율", format='%.2f%%'),
-            "ROAS": st.column_config.NumberColumn("ROAS", format='%.0f%%'),
+            "전환율": st.column_config.NumberColumn("전환율", format="%.2f%%"),
+            "ROAS": st.column_config.NumberColumn("ROAS", format="%.0f%%"),
         }
     )
 
