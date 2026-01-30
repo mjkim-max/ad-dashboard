@@ -102,7 +102,6 @@ def run_diagnosis(df, target_cpa):
     results = []
 
     for _, row in m.iterrows():
-        # 비용 3000원 미만은 진단 제외
         if row['Cost_3'] < 3000: continue
         
         cpa3, cpa7, cpa14 = row['CPA_3'], row['CPA_7'], row['CPA_14']
@@ -217,7 +216,6 @@ if not diag_res.empty:
     sorted_camps = []
     
     for c_name, grp in camp_grps:
-        # 우선순위: Red(1) -> Yellow(2) -> Blue(3)
         has_red = 'Red' in grp['Status_Color'].values
         has_yellow = 'Yellow' in grp['Status_Color'].values
         
@@ -228,7 +226,6 @@ if not diag_res.empty:
         else: 
             prio = 3; h_col = ":blue"
         
-        # 캠페인 전체 평균 계산
         c3 = grp['Cost_3'].sum(); cv3 = grp['Conversions_3'].sum()
         cpa3 = c3 / cv3 if cv3 > 0 else 0
         c7 = grp['Cost_7'].sum(); cv7 = grp['Conversions_7'].sum()
@@ -236,12 +233,13 @@ if not diag_res.empty:
         c14 = grp['Cost_14'].sum(); cv14 = grp['Conversions_14'].sum()
         cpa14 = c14 / cv14 if cv14 > 0 else 0
 
-        # 헤더는 깔끔하게 이름만!
         h_txt = c_name
         
         sorted_camps.append({
             'name': c_name, 'data': grp, 'prio': prio, 'header': h_txt, 'color': h_col,
-            'stats': (cpa3, cpa7, cpa14)
+            'stats_3': (cpa3, c3, cv3),
+            'stats_7': (cpa7, c7, cv7),
+            'stats_14': (cpa14, c14, cv14)
         })
     
     sorted_camps.sort(key=lambda x: x['prio'])
@@ -249,22 +247,27 @@ if not diag_res.empty:
     for item in sorted_camps:
         if sel_camp != '전체' and item['name'] != sel_camp: continue
         
-        # 1. 헤더 (이름만 깔끔하게)
         with st.expander(f"{item['color']}[{item['header']}]", expanded=False):
-            
-            # 2. 내부 상단: 캠페인 요약 (큰 숫자)
-            st.markdown("##### 📊 캠페인 요약")
-            sc1, sc2, sc3 = st.columns(3)
-            cpa3, cpa7, cpa14 = item['stats']
-            
-            # Metric으로 크게 표시
-            sc1.metric("3일 평균 CPA", f"{cpa3:,.0f}원")
-            sc2.metric("7일 평균 CPA", f"{cpa7:,.0f}원")
-            sc3.metric("14일 평균 CPA", f"{cpa14:,.0f}원")
+            st.markdown("##### 📊 캠페인 기간별 성과 요약")
+            c_3d, c_7d, c_14d = st.columns(3)
+            with c_3d:
+                st.markdown("**📅 최근 3일**")
+                cpa, cost, conv = item['stats_3']
+                st.metric("CPA", f"{cpa:,.0f}원")
+                st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
+            with c_7d:
+                st.markdown("**📅 최근 7일**")
+                cpa, cost, conv = item['stats_7']
+                st.metric("CPA", f"{cpa:,.0f}원")
+                st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
+            with c_14d:
+                st.markdown("**📅 최근 14일**")
+                cpa, cost, conv = item['stats_14']
+                st.metric("CPA", f"{cpa:,.0f}원")
+                st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
             
             st.divider()
 
-            # 3. 소재 리스트
             st.markdown("##### 📂 소재별 진단")
             for _, r in item['data'].iterrows():
                 with get_color_box(r['Status_Color']):
@@ -309,9 +312,10 @@ c_freq, c_opts, c_norm = st.columns([1, 2, 1])
 freq_option = c_freq.radio("집계 기준", ["1일", "3일", "7일"], horizontal=True)
 freq_map = {"1일": "D", "3일": "3D", "7일": "W"}
 
+# [수정] Clicks(클릭수), CVR(전환율), CPC(클릭당비용) 추가
 metrics = c_opts.multiselect(
     "지표 선택", 
-    ['Impressions', 'CTR', 'CPM', 'CPA', 'Cost', 'Conversions', 'ROAS'], 
+    ['Impressions', 'Clicks', 'CTR', 'CPM', 'CPC', 'CPA', 'Cost', 'Conversions', 'CVR', 'ROAS'], 
     default=['Impressions', 'CTR', 'CPM']
 )
 use_norm = c_norm.checkbox("데이터 정규화 (0-100%)", value=True)
@@ -353,10 +357,10 @@ if not chart_data.empty and metrics:
 
     # [상세 데이터 표]
     st.markdown("#### 📋 상세 데이터")
-    display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
+    display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'CPM', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
     table_df = agg_df[display_cols].copy()
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
-    table_df.columns = ['날짜', 'CPA', '비용', '노출', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
+    table_df.columns = ['날짜', 'CPA', '비용', '노출', 'CPM', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
 
     st.dataframe(
         table_df,
@@ -367,6 +371,7 @@ if not chart_data.empty and metrics:
             "CPA": st.column_config.NumberColumn("CPA", format="%d원"),
             "비용": st.column_config.NumberColumn("비용", format="%d원"),
             "노출": st.column_config.NumberColumn("노출", format="%d"),
+            "CPM": st.column_config.NumberColumn("CPM", format="%d원"),
             "클릭": st.column_config.NumberColumn("클릭", format="%d"),
             "전환": st.column_config.NumberColumn("전환", format="%d"),
             "클릭률": st.column_config.NumberColumn("클릭률", format="%.2f%%"),
