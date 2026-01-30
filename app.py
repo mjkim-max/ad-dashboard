@@ -5,11 +5,10 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 
 # -----------------------------------------------------------------------------
-# [SETUP] 페이지 설정 (여백 최소화 CSS 주입)
+# [SETUP] 페이지 설정
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="광고 성과 관리 BI", page_icon=None, layout="wide")
 
-# CSS로 텍스트 줄간격 좁히기 & 여백 조정
 st.markdown("""
 <style>
     .block-container {padding-top: 1rem; padding-bottom: 2rem;}
@@ -20,8 +19,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # [주소 설정]
+# 1. 메인 데이터 (Meta + Google 일별 성과)
 META_SHEET_URL = "https://docs.google.com/spreadsheets/d/13PG6s372l1SucujsACowlihRqOl8YDY4wCv_PEYgPTU/edit?gid=29934845#gid=29934845"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1jEB4zTYPb2mrxZGXriju6RymHo1nEMC8QIVzqgiHwdg/edit?gid=141038195#gid=141038195"
+
+# 2. [NEW] 세트/광고그룹 전용 시트 (업데이트 완료)
+GOOGLE_DEMO_SHEET_URL = "https://docs.google.com/spreadsheets/d/17z8PyqTdVFyF4QuTUKe6b0T_acWw2QbfvUP8DnTo5LM/edit?gid=29934845#gid=29934845"
 
 # [세션 상태 초기화]
 if 'chart_target_creative' not in st.session_state:
@@ -42,8 +45,9 @@ def convert_google_sheet_url(url):
         return url
 
 @st.cache_data(ttl=600)
-def load_data():
+def load_main_data():
     dfs = []
+    # 메인 시트용 매핑 (한글 컬럼명 지원)
     rename_map = {
         '일': 'Date', '날짜': 'Date',
         '캠페인 이름': 'Campaign', '캠페인': 'Campaign',
@@ -55,8 +59,7 @@ def load_data():
         '구매': 'Conversions', '전환': 'Conversions', '전환수': 'Conversions',
         '구매 전환값': 'Conversion_Value', '전환 가치': 'Conversion_Value', '전환값': 'Conversion_Value',
         '상태': 'Status', '소재 상태': 'Status', '광고 상태': 'Status',
-        'Gender': 'Gender', '성별': 'Gender', 
-        'Age': 'Age', '연령': 'Age'
+        'Gender': 'Gender', '성별': 'Gender', 'Age': 'Age', '연령': 'Age'
     }
 
     try:
@@ -84,16 +87,49 @@ def load_data():
                 df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # [데이터 보정]
     if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
     if 'Age' not in df.columns: df['Age'] = 'Unknown'
     df['Gender'] = df['Gender'].fillna('Unknown')
     df['Age'] = df['Age'].fillna('Unknown')
-    
-    # 데이터 정규화
     df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
             
     return df
+
+@st.cache_data(ttl=600)
+def load_google_demo_data():
+    # 세트 전용 시트 로드
+    try:
+        # 영문 컬럼명 그대로 매핑 (제공해주신 형식)
+        rename_map = {
+            'Date': 'Date',
+            'Campaign': 'Campaign',
+            'AdGroup': 'AdGroup',
+            'Gender': 'Gender',
+            'Age': 'Age',
+            'Cost': 'Cost',
+            'Impressions': 'Impressions',
+            'Clicks': 'Clicks',
+            'Conversions': 'Conversions',
+            'Conversion_Value': 'Conversion_Value',
+            'Status': 'Status'
+        }
+        df = pd.read_csv(convert_google_sheet_url(GOOGLE_DEMO_SHEET_URL)).rename(columns=rename_map)
+        
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+
+        for col in ['Cost', 'Conversions', 'Impressions', 'Clicks', 'Conversion_Value']:
+            if col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                
+        if 'Gender' in df.columns:
+            df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
+            
+        return df
+    except:
+        return pd.DataFrame()
 
 # -----------------------------------------------------------------------------
 # 2. 진단 로직
@@ -144,7 +180,8 @@ def run_diagnosis(df, target_cpa):
 # -----------------------------------------------------------------------------
 # 3. 사이드바
 # -----------------------------------------------------------------------------
-df_raw = load_data()
+df_raw = load_main_data()
+df_google_demo_raw = load_google_demo_data()
 
 st.sidebar.header("목표 설정")
 target_cpa_warning = st.sidebar.number_input("목표 CPA", value=100000, step=1000)
@@ -152,7 +189,6 @@ target_cpa_opportunity = st.sidebar.number_input("증액추천 CPA", value=50000
 st.sidebar.markdown("---")
 
 st.sidebar.header("기간 설정")
-# [수정] 기본값을 '최근 14일'(index=4)로 설정
 preset = st.sidebar.selectbox("기간선택", ["오늘", "어제", "최근 3일", "최근 7일", "최근 14일", "최근 30일", "이번 달", "지난 달", "최근 90일"], index=4)
 today = datetime.now().date()
 if preset == "오늘": s, e = today, today
@@ -176,9 +212,18 @@ if c_m.checkbox("Meta", True): sel_pl.append("Meta")
 if c_g.checkbox("Google", True): sel_pl.append("Google")
 if 'Platform' in df_raw.columns: df_raw = df_raw[df_raw['Platform'].isin(sel_pl)]
 
+# [필터링] 메인 데이터
 df_filtered = df_raw.copy()
 if len(date_range) == 2:
     df_filtered = df_filtered[(df_filtered['Date'].dt.date >= date_range[0]) & (df_filtered['Date'].dt.date <= date_range[1])]
+
+# [필터링] 구글 데모 데이터 (날짜 기준)
+df_google_demo_filtered = df_google_demo_raw.copy()
+if not df_google_demo_filtered.empty and 'Date' in df_google_demo_filtered.columns and len(date_range) == 2:
+    df_google_demo_filtered = df_google_demo_filtered[
+        (df_google_demo_filtered['Date'].dt.date >= date_range[0]) & 
+        (df_google_demo_filtered['Date'].dt.date <= date_range[1])
+    ]
 
 camps = ['전체'] + sorted(df_filtered['Campaign'].unique().tolist())
 sel_camp = st.sidebar.selectbox("캠페인필터", camps)
@@ -321,19 +366,43 @@ st.markdown("---")
 st.subheader("2. 지표별 추세 및 상세 분석")
 
 target_creative = st.session_state['chart_target_creative']
-chart_data = target_df.copy()
-is_specific_creative = False
+
+trend_df = target_df.copy()
+demog_df = pd.DataFrame() 
+is_specific = False
 
 if target_creative:
-    chart_data = chart_data[chart_data['Creative_ID'] == target_creative]
-    is_specific_creative = True
+    # A. Trend (시계열) - 소재 기준
+    trend_df = target_df[target_df['Creative_ID'] == target_creative]
     
-    st.info(f"현재 **'{target_creative}'** 소재를 집중 분석 중입니다.")
+    # B. Demo (성별/연령) - 플랫폼별 분기
+    sel_row = target_df[target_df['Creative_ID'] == target_creative]
+    
+    if not sel_row.empty:
+        platform = sel_row['Platform'].iloc[0]
+        adgroup = sel_row['AdGroup'].iloc[0]
+        
+        if platform == 'Google':
+            # 구글: 기간 필터링된 데모 시트에서 AdGroup으로 조회
+            if not df_google_demo_filtered.empty:
+                demog_df = df_google_demo_filtered[df_google_demo_filtered['AdGroup'] == adgroup]
+                st.info(f"🔎 **'{target_creative}'** 소재 분석 중 (구글 데이터는 '{adgroup}' 광고그룹 전체 기준)")
+            else:
+                st.warning("구글 인구통계 시트 데이터가 비어있습니다.")
+        else:
+            # 메타: 시계열 데이터 그대로 사용
+            demog_df = trend_df
+            st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다.")
+            
+    is_specific = True
     
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
         st.rerun()
 else:
+    # 전체 모드
+    demog_df = target_df.copy() # 전체 데이터
+    
     desc = []
     if sel_pl: desc.append(f"매체[{','.join(sel_pl)}]")
     if sel_camp != '전체': desc.append(f"캠페인[{sel_camp}]")
@@ -347,7 +416,6 @@ c_freq, c_opts, c_norm = st.columns([1, 2, 1])
 freq_option = c_freq.radio("집계 기준", ["1일", "3일", "7일"], horizontal=True)
 freq_map = {"1일": "D", "3일": "3D", "7일": "W"}
 
-# [수정] 기본 지표 및 순서 지정
 metrics = c_opts.multiselect(
     "지표 선택", 
     ['Impressions', 'Clicks', 'CTR', 'CPM', 'CPC', 'CPA', 'Cost', 'Conversions', 'CVR', 'ROAS'], 
@@ -355,8 +423,11 @@ metrics = c_opts.multiselect(
 )
 use_norm = c_norm.checkbox("데이터 정규화 (0-100%)", value=True)
 
-if not chart_data.empty and metrics:
-    agg_df = chart_data.set_index('Date').groupby(pd.Grouper(freq=freq_map[freq_option])).agg({
+if not trend_df.empty and metrics:
+    # ----------------------------------------------------
+    # [1] 시계열 차트
+    # ----------------------------------------------------
+    agg_df = trend_df.set_index('Date').groupby(pd.Grouper(freq=freq_map[freq_option])).agg({
         'Cost': 'sum', 'Impressions': 'sum', 'Clicks': 'sum', 'Conversions': 'sum', 'Conversion_Value': 'sum'
     }).reset_index().sort_values('Date', ascending=False)
 
@@ -370,7 +441,6 @@ if not chart_data.empty and metrics:
     plot_df = agg_df.sort_values('Date', ascending=True)
     fig = go.Figure()
     
-    # [수정] 색상/스타일 매핑 정의
     style_map = {
         'Conversions': {'color': 'black', 'width': 3},
         'CPA': {'color': 'red', 'width': 3},
@@ -387,7 +457,6 @@ if not chart_data.empty and metrics:
             y_plot = y_data
             hover_temp = f"{m}: %{{y:,.2f}}"
 
-        # 스타일 적용 (없으면 기본값)
         style = style_map.get(m, {'color': None, 'width': 2})
 
         fig.add_trace(go.Scatter(
@@ -401,7 +470,9 @@ if not chart_data.empty and metrics:
     fig.update_layout(height=450, hovermode='x unified', title=f"추세 분석 ({freq_option} 기준)", plot_bgcolor='white')
     st.plotly_chart(fig, use_container_width=True)
 
-    # st.markdown("#### 상세 데이터") # 요청으로 삭제
+    # ----------------------------------------------------
+    # [2] 상세 데이터 표
+    # ----------------------------------------------------
     display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'CPM', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
     table_df = agg_df[display_cols].copy()
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
@@ -426,25 +497,18 @@ if not chart_data.empty and metrics:
         }
     )
 
-    # -------------------------------------------------------------------
-    # [NEW] 성별/연령 분석 (구글 포함 시 차단 로직 적용)
-    # -------------------------------------------------------------------
+    # ----------------------------------------------------
+    # [3] 성별/연령 분석
+    # ----------------------------------------------------
     st.divider()
     st.subheader("성별/연령 심층 분석")
     
-    # 1. 구글 포함 여부 확인
-    has_google = 'Google' in sel_pl
+    valid_gender_check = demog_df[~demog_df['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
     
-    # 2. 유효 데이터 확인
-    valid_gender_check = chart_data[~chart_data['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
-    
-    if has_google:
-        st.warning("⚠️ 구글 애즈가 포함된 조회입니다. 구글은 상세 타겟(성별/연령) 데이터를 제공하지 않으므로 분석이 제한됩니다. (Meta만 선택해주세요)")
-    elif valid_gender_check.empty:
-        st.info("선택된 데이터에 성별/연령 정보가 없습니다.")
+    if valid_gender_check.empty:
+        st.info("선택된 데이터에 성별/연령 정보가 없습니다. (구글의 경우 하단 시트에 AdGroup명과 Date가 일치하는 데이터가 있는지 확인해주세요)")
     else:
-        # Meta 단독 등 유효한 경우 -> 그래프 표시
-        demog_agg = chart_data.groupby(['Age', 'Gender']).agg({
+        demog_agg = valid_gender_check.groupby(['Age', 'Gender']).agg({
             'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
         }).reset_index()
         demog_agg['CPA'] = np.where(demog_agg['Conversions']>0, demog_agg['Cost']/demog_agg['Conversions'], 0)
@@ -452,7 +516,8 @@ if not chart_data.empty and metrics:
         male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
         female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
         
-        # 제목 제거 (요청사항 반영)
+        title_txt = f"{target_creative} 성별/연령별 전환수" if is_specific else "성별/연령별 전환수 (통합)"
+        st.markdown(f"#### {title_txt}")
         
         fig_conv = go.Figure()
         fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
