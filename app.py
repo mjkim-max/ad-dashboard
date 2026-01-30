@@ -19,16 +19,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # [주소 설정]
-# 1. 메인 데이터 (Meta + Google 일별 성과)
 META_SHEET_URL = "https://docs.google.com/spreadsheets/d/13PG6s372l1SucujsACowlihRqOl8YDY4wCv_PEYgPTU/edit?gid=29934845#gid=29934845"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1jEB4zTYPb2mrxZGXriju6RymHo1nEMC8QIVzqgiHwdg/edit?gid=141038195#gid=141038195"
-
-# 2. 세트/광고그룹 전용 시트 (구글 인구통계)
 GOOGLE_DEMO_SHEET_URL = "https://docs.google.com/spreadsheets/d/17z8PyqTdVFyF4QuTUKe6b0T_acWw2QbfvUP8DnTo5LM/edit?gid=29934845#gid=29934845"
 
 # [세션 상태 초기화]
 if 'chart_target_creative' not in st.session_state:
     st.session_state['chart_target_creative'] = None
+if 'chart_target_adgroup' not in st.session_state: # [NEW] 광고그룹 추적용
+    st.session_state['chart_target_adgroup'] = None
 
 # -----------------------------------------------------------------------------
 # 1. 데이터 로드
@@ -47,25 +46,24 @@ def convert_google_sheet_url(url):
 @st.cache_data(ttl=600)
 def load_main_data():
     dfs = []
-    # 메인 시트용 매핑
+    # 메인 시트 매핑
     rename_map = {
-        '일': 'Date', '날짜': 'Date',
-        '캠페인 이름': 'Campaign', '캠페인': 'Campaign',
-        '광고 세트 이름': 'AdGroup', '광고 그룹 이름': 'AdGroup', '광고 그룹': 'AdGroup',
-        '광고 이름': 'Creative_ID', '소재 이름': 'Creative_ID', '소재': 'Creative_ID',
-        '지출 금액 (KRW)': 'Cost', '비용': 'Cost', '지출': 'Cost',
-        '노출': 'Impressions', '노출수': 'Impressions',
-        '링크 클릭': 'Clicks', '클릭': 'Clicks', '클릭수': 'Clicks',
-        '구매': 'Conversions', '전환': 'Conversions', '전환수': 'Conversions',
-        '구매 전환값': 'Conversion_Value', '전환 가치': 'Conversion_Value', '전환값': 'Conversion_Value',
-        '상태': 'Status', '소재 상태': 'Status', '광고 상태': 'Status',
-        'Gender': 'Gender', '성별': 'Gender', 'Age': 'Age', '연령': 'Age'
+        '일': 'Date', '날짜': 'Date', 'Date': 'Date',
+        '캠페인 이름': 'Campaign', '캠페인': 'Campaign', 'Campaign': 'Campaign',
+        '광고 세트 이름': 'AdGroup', '광고 그룹 이름': 'AdGroup', 'AdGroup': 'AdGroup',
+        '광고 이름': 'Creative_ID', '소재 이름': 'Creative_ID', 'Creative_ID': 'Creative_ID',
+        '지출 금액 (KRW)': 'Cost', '비용': 'Cost', 'Cost': 'Cost',
+        '노출': 'Impressions', 'Impressions': 'Impressions',
+        '링크 클릭': 'Clicks', 'Clicks': 'Clicks',
+        '구매': 'Conversions', 'Conversions': 'Conversions',
+        '구매 전환값': 'Conversion_Value', 'Conversion_Value': 'Conversion_Value',
+        '상태': 'Status', 'Status': 'Status',
+        'Gender': 'Gender', 'Age': 'Age'
     }
 
     try:
         df_meta = pd.read_csv(convert_google_sheet_url(META_SHEET_URL))
-        # [방탄 코드] 컬럼 공백 제거 (매우 중요)
-        df_meta.columns = df_meta.columns.str.strip()
+        df_meta.columns = df_meta.columns.str.strip() # 공백 제거
         df_meta = df_meta.rename(columns=rename_map)
         df_meta['Platform'] = 'Meta'
         if 'Status' not in df_meta.columns: df_meta['Status'] = 'On'
@@ -74,8 +72,7 @@ def load_main_data():
 
     try:
         df_google = pd.read_csv(convert_google_sheet_url(GOOGLE_SHEET_URL))
-        # [방탄 코드] 컬럼 공백 제거
-        df_google.columns = df_google.columns.str.strip()
+        df_google.columns = df_google.columns.str.strip() # 공백 제거
         df_google = df_google.rename(columns=rename_map)
         df_google['Platform'] = 'Google'
         if 'Status' not in df_google.columns: df_google['Status'] = 'On'
@@ -93,10 +90,8 @@ def load_main_data():
                 df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # [방탄 코드] 필수 컬럼 강제 생성 (KeyError 방지)
     if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
     if 'Age' not in df.columns: df['Age'] = 'Unknown'
-    
     df['Gender'] = df['Gender'].fillna('Unknown')
     df['Age'] = df['Age'].fillna('Unknown')
     df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
@@ -107,11 +102,8 @@ def load_main_data():
 def load_google_demo_data():
     try:
         df = pd.read_csv(convert_google_sheet_url(GOOGLE_DEMO_SHEET_URL))
+        df.columns = df.columns.str.strip() # 공백 제거
         
-        # [핵심 수정] 컬럼명 앞뒤 공백 제거 (이게 KeyError 원인입니다)
-        df.columns = df.columns.str.strip()
-        
-        # 이름 매핑
         rename_map = {
             'Date': 'Date', 'Campaign': 'Campaign', 'AdGroup': 'AdGroup',
             'Gender': 'Gender', 'Age': 'Age', 'Cost': 'Cost',
@@ -121,22 +113,16 @@ def load_google_demo_data():
         }
         df = df.rename(columns=rename_map)
         
-        # 날짜 변환
-        if 'Date' in df.columns:
-            df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        if 'Date' in df.columns: df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
 
-        # 숫자형 변환
         for col in ['Cost', 'Conversions', 'Impressions', 'Clicks', 'Conversion_Value']:
             if col in df.columns:
                 if df[col].dtype == 'object':
                     df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # [방탄 코드] 만약 Gender/Age가 없으면 강제로 생성해서 에러 막음
         if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
         if 'Age' not in df.columns: df['Age'] = 'Unknown'
-        
-        # 한글화
         df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
             
         return df
@@ -186,23 +172,25 @@ def run_diagnosis(df, target_cpa):
             else: title = "관망 필요 (최근 저하)"; detail = "과거엔 좋았으나, 최근 3일은 목표 초과."
 
         row['Status_Color'] = status; row['Diag_Title'] = title; row['Diag_Detail'] = detail
+        row['AdGroup'] = row['AdGroup'] # 광고그룹 정보 보존
         results.append(row)
     return pd.DataFrame(results)
 
 # -----------------------------------------------------------------------------
-# 3. 사이드바
+# 3. 사이드바 & 데이터 준비
 # -----------------------------------------------------------------------------
 df_raw = load_main_data()
 df_google_demo_raw = load_google_demo_data()
 
 st.sidebar.header("목표 설정")
 target_cpa_warning = st.sidebar.number_input("목표 CPA", value=100000, step=1000)
-target_cpa_opportunity = st.sidebar.number_input("증액추천 CPA", value=50000, step=1000)
 st.sidebar.markdown("---")
 
 st.sidebar.header("기간 설정")
-preset = st.sidebar.selectbox("기간선택", ["오늘", "어제", "최근 3일", "최근 7일", "최근 14일", "최근 30일", "이번 달", "지난 달", "최근 90일"], index=4)
+preset = st.sidebar.selectbox("기간선택", ["오늘", "어제", "최근 3일", "최근 7일", "최근 14일", "최근 30일", "이번 달", "지난 달", "최근 90일", "전체 기간"], index=4)
 today = datetime.now().date()
+
+# [중요] 사용자가 데이터를 2025년과 2026년을 섞어서 넣었으므로, 기본 날짜 계산을 유연하게
 if preset == "오늘": s, e = today, today
 elif preset == "어제": s = today - timedelta(days=1); e = s
 elif preset == "최근 3일": s = today - timedelta(days=2); e = today
@@ -213,23 +201,24 @@ elif preset == "최근 90일": s = today - timedelta(days=89); e = today
 elif preset == "이번 달": s = date(today.year, today.month, 1); e = today
 elif preset == "지난 달": 
     first = date(today.year, today.month, 1); e = first - timedelta(days=1); s = date(e.year, e.month, 1)
+elif preset == "전체 기간": s = date(2020, 1, 1); e = today # 충분히 넓게
+
 date_range = st.sidebar.date_input("날짜범위", [s, e])
 st.sidebar.markdown("---")
 
 st.sidebar.header("필터 설정")
-st.sidebar.write("매체선택")
 c_m, c_g = st.sidebar.columns(2)
 sel_pl = []
 if c_m.checkbox("Meta", True): sel_pl.append("Meta")
 if c_g.checkbox("Google", True): sel_pl.append("Google")
 if 'Platform' in df_raw.columns: df_raw = df_raw[df_raw['Platform'].isin(sel_pl)]
 
-# [1차 필터링] 기간 (메인 데이터)
+# 1. Main Data 필터링
 df_filtered = df_raw.copy()
 if len(date_range) == 2:
     df_filtered = df_filtered[(df_filtered['Date'].dt.date >= date_range[0]) & (df_filtered['Date'].dt.date <= date_range[1])]
 
-# [1차 필터링] 기간 (구글 데모 데이터)
+# 2. Google Demo Data 필터링
 df_google_demo_filtered = df_google_demo_raw.copy()
 if not df_google_demo_filtered.empty and 'Date' in df_google_demo_filtered.columns and len(date_range) == 2:
     df_google_demo_filtered = df_google_demo_filtered[
@@ -280,10 +269,8 @@ if not diag_res.empty:
     for c_name, grp in camp_grps:
         has_red = 'Red' in grp['Status_Color'].values
         has_yellow = 'Yellow' in grp['Status_Color'].values
-        
-        if has_red: prio = 1; h_col = ":red"
-        elif has_yellow: prio = 2; h_col = ":orange"
-        else: prio = 3; h_col = ":blue"
+        prio = 1 if has_red else 2 if has_yellow else 3
+        h_col = ":red" if has_red else ":orange" if has_yellow else ":blue"
         
         c3 = grp['Cost_3'].sum(); cv3 = grp['Conversions_3'].sum()
         cpa3 = c3 / cv3 if cv3 > 0 else 0
@@ -292,13 +279,9 @@ if not diag_res.empty:
         c14 = grp['Cost_14'].sum(); cv14 = grp['Conversions_14'].sum()
         cpa14 = c14 / cv14 if cv14 > 0 else 0
 
-        h_txt = c_name
-        
         sorted_camps.append({
-            'name': c_name, 'data': grp, 'prio': prio, 'header': h_txt, 'color': h_col,
-            'stats_3': (cpa3, c3, cv3),
-            'stats_7': (cpa7, c7, cv7),
-            'stats_14': (cpa14, c14, cv14)
+            'name': c_name, 'data': grp, 'prio': prio, 'header': c_name, 'color': h_col,
+            'stats_3': (cpa3, c3, cv3), 'stats_7': (cpa7, c7, cv7), 'stats_14': (cpa14, c14, cv14)
         })
     
     sorted_camps.sort(key=lambda x: x['prio'])
@@ -311,63 +294,38 @@ if not diag_res.empty:
             c_3d, c_7d, c_14d = st.columns(3)
             
             def fmt_head(label, cpa, cost, conv):
-                return f"""
-                <div style="line-height:1.4;">
-                <strong>{label}</strong><br>
-                CPA <strong>{cpa:,.0f}원</strong><br>
-                비용 {cost:,.0f}원<br>
-                전환 {conv:,.0f}
-                </div>
-                """
+                return f"""<div style="line-height:1.4;"><strong>{label}</strong><br>CPA <strong>{cpa:,.0f}원</strong><br>비용 {cost:,.0f}원<br>전환 {conv:,.0f}</div>"""
             
-            with c_3d:
-                cpa, cost, conv = item['stats_3']
-                st.markdown(fmt_head("최근 3일", cpa, cost, conv), unsafe_allow_html=True)
-            with c_7d:
-                cpa, cost, conv = item['stats_7']
-                st.markdown(fmt_head("최근 7일", cpa, cost, conv), unsafe_allow_html=True)
-            with c_14d:
-                cpa, cost, conv = item['stats_14']
-                st.markdown(fmt_head("최근 14일", cpa, cost, conv), unsafe_allow_html=True)
+            with c_3d: st.markdown(fmt_head("최근 3일", *item['stats_3']), unsafe_allow_html=True)
+            with c_7d: st.markdown(fmt_head("최근 7일", *item['stats_7']), unsafe_allow_html=True)
+            with c_14d: st.markdown(fmt_head("최근 14일", *item['stats_14']), unsafe_allow_html=True)
             
             st.markdown("<hr style='margin: 10px 0; border: none; border-top: 1px solid #f0f2f6;'>", unsafe_allow_html=True)
-
             st.markdown("##### 소재별 진단")
             
             for idx, (_, r) in enumerate(item['data'].iterrows()):
                 st.markdown(f"#### {r['Creative_ID']}")
-                
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
                 
                 def format_stat_block(label, cpa, cost, conv):
                     cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
-                    return f"""
-                    <div style="line-height:1.6;">
-                    <strong>{label}</strong><br>
-                    CPA <strong>{cpa:,.0f}원</strong><br>
-                    비용 {cost:,.0f}원<br>
-                    전환 {conv:,.0f}
-                    </div>
-                    """
+                    return f"""<div style="line-height:1.6;"><strong>{label}</strong><br>CPA <strong>{cpa_val}원</strong><br>비용 {cost:,.0f}원<br>전환 {conv:,.0f}</div>"""
 
-                with col1:
-                    st.markdown(format_stat_block("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']), unsafe_allow_html=True)
-                with col2:
-                    st.markdown(format_stat_block("7일", r['CPA_7'], r['Cost_7'], r['Conversions_7']), unsafe_allow_html=True)
-                with col3:
-                    st.markdown(format_stat_block("14일", r['CPA_14'], r['Cost_14'], r['Conversions_14']), unsafe_allow_html=True)
+                with col1: st.markdown(format_stat_block("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']), unsafe_allow_html=True)
+                with col2: st.markdown(format_stat_block("7일", r['CPA_7'], r['Cost_7'], r['Conversions_7']), unsafe_allow_html=True)
+                with col3: st.markdown(format_stat_block("14일", r['CPA_14'], r['Cost_14'], r['Conversions_14']), unsafe_allow_html=True)
                 with col4:
                     t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange"
                     st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
                     st.caption(r['Diag_Detail'])
                     
                     unique_key = f"btn_{item['name']}_{r['Creative_ID']}_{idx}"
+                    # [핵심 수정] 버튼 클릭 시 AdGroup도 함께 저장
                     if st.button("분석하기", key=unique_key):
                         st.session_state['chart_target_creative'] = r['Creative_ID']
+                        st.session_state['chart_target_adgroup'] = r['AdGroup'] # AdGroup 저장
                         st.rerun()
-                
                 st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid #f0f2f6;'>", unsafe_allow_html=True)
-
 else:
     st.info("진단 데이터 부족")
 
@@ -378,32 +336,40 @@ st.markdown("---")
 st.subheader("2. 지표별 추세 및 상세 분석")
 
 target_creative = st.session_state['chart_target_creative']
+target_adgroup = st.session_state['chart_target_adgroup']
 
-# [핵심] 차트 데이터 준비
+# 데이터 준비
 trend_df = target_df.copy()
 demog_df = pd.DataFrame() 
 is_specific = False
 
 if target_creative:
-    # A. Trend (시계열) - 소재 기준
+    # 1. Trend Data (선택한 소재만)
     trend_df = target_df[target_df['Creative_ID'] == target_creative]
     
-    # B. Demo (성별/연령) - 플랫폼별 분기
+    # 2. Demo Data (AdGroup 기반)
+    # 현재 선택된 소재의 행을 찾아서 플랫폼 확인
     sel_row = target_df[target_df['Creative_ID'] == target_creative]
     
     if not sel_row.empty:
         platform = sel_row['Platform'].iloc[0]
-        adgroup = sel_row['AdGroup'].iloc[0]
+        # 만약 session에 저장된 adgroup이 없으면 현재 row에서 가져옴
+        current_adgroup = target_adgroup if target_adgroup else sel_row['AdGroup'].iloc[0]
         
         if platform == 'Google':
             # 구글: 기간 필터링된 데모 시트에서 AdGroup으로 조회
             if not df_google_demo_filtered.empty:
-                demog_df = df_google_demo_filtered[df_google_demo_filtered['AdGroup'] == adgroup]
-                st.info(f"🔎 **'{target_creative}'** 소재 분석 중 (구글 데이터는 '{adgroup}' 광고그룹 전체 기준)")
+                demog_df = df_google_demo_filtered[df_google_demo_filtered['AdGroup'] == current_adgroup]
+                
+                # [친절한 디버깅 메시지] 데이터가 비었을 경우 원인 추정
+                if demog_df.empty:
+                    st.warning(f"⚠️ '{current_adgroup}' 광고그룹 데이터가 하단 시트에 없습니다. 날짜범위({date_range[0]}~{date_range[1]})가 맞는지 확인해주세요. (시트 날짜: 2025년 / 현재 선택: 2026년 가능성)")
+                else:
+                    st.info(f"🔎 **'{target_creative}'** (구글) 분석 중. 인구통계는 **'{current_adgroup}'** 광고그룹 전체 기준입니다.")
             else:
-                st.warning("구글 인구통계 시트 데이터가 비어있습니다.")
+                st.warning("구글 인구통계 데이터가 날짜 필터링에 의해 모두 제외되었습니다. 기간 설정을 확인해주세요.")
         else:
-            # 메타: 시계열 데이터 그대로 사용
+            # 메타: 그냥 해당 소재 데이터
             demog_df = trend_df
             st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다.")
             
@@ -411,35 +377,20 @@ if target_creative:
     
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
+        st.session_state['chart_target_adgroup'] = None
         st.rerun()
 else:
     # 전체 모드
-    demog_df = target_df.copy() # 전체 데이터
-    
-    desc = []
-    if sel_pl: desc.append(f"매체[{','.join(sel_pl)}]")
-    if sel_camp != '전체': desc.append(f"캠페인[{sel_camp}]")
-    if sel_grp != '전체': desc.append(f"그룹[{sel_grp}]")
-    
-    info_text = " / ".join(desc) if desc else "전체 데이터"
-    st.info(f"📊 현재 **{info_text}**의 통합 추세를 분석 중입니다. (특정 소재를 보려면 위에서 '분석하기'를 누르세요)")
+    demog_df = target_df.copy()
+    st.info(f"📊 통합 추세 분석 중 (특정 소재를 보려면 위에서 '분석하기'를 누르세요)")
 
 c_freq, c_opts, c_norm = st.columns([1, 2, 1])
-
 freq_option = c_freq.radio("집계 기준", ["1일", "3일", "7일"], horizontal=True)
 freq_map = {"1일": "D", "3일": "3D", "7일": "W"}
-
-metrics = c_opts.multiselect(
-    "지표 선택", 
-    ['Impressions', 'Clicks', 'CTR', 'CPM', 'CPC', 'CPA', 'Cost', 'Conversions', 'CVR', 'ROAS'], 
-    default=['Conversions', 'CPA', 'CTR', 'Impressions']
-)
+metrics = c_opts.multiselect("지표 선택", ['Impressions', 'Clicks', 'CTR', 'CPM', 'CPC', 'CPA', 'Cost', 'Conversions', 'CVR', 'ROAS'], default=['Conversions', 'CPA', 'CTR', 'Impressions'])
 use_norm = c_norm.checkbox("데이터 정규화 (0-100%)", value=True)
 
 if not trend_df.empty and metrics:
-    # ----------------------------------------------------
-    # [1] 시계열 차트
-    # ----------------------------------------------------
     agg_df = trend_df.set_index('Date').groupby(pd.Grouper(freq=freq_map[freq_option])).agg({
         'Cost': 'sum', 'Impressions': 'sum', 'Clicks': 'sum', 'Conversions': 'sum', 'Conversion_Value': 'sum'
     }).reset_index().sort_values('Date', ascending=False)
@@ -453,81 +404,31 @@ if not trend_df.empty and metrics:
 
     plot_df = agg_df.sort_values('Date', ascending=True)
     fig = go.Figure()
-    
-    style_map = {
-        'Conversions': {'color': 'black', 'width': 3},
-        'CPA': {'color': 'red', 'width': 3},
-        'CTR': {'color': 'blue', 'width': 2},
-        'Impressions': {'color': 'green', 'width': 2}
-    }
+    style_map = {'Conversions': {'color': 'black', 'width': 3}, 'CPA': {'color': 'red', 'width': 3}, 'CTR': {'color': 'blue', 'width': 2}, 'Impressions': {'color': 'green', 'width': 2}}
     
     for m in metrics:
         y_data = plot_df[m]
-        if use_norm and y_data.max() > 0:
-            y_plot = (y_data - y_data.min()) / (y_data.max() - y_data.min()) * 100
-            hover_temp = f"{m}: %{{customdata:,.2f}}"
-        else:
-            y_plot = y_data
-            hover_temp = f"{m}: %{{y:,.2f}}"
-
+        y_plot = (y_data - y_data.min()) / (y_data.max() - y_data.min()) * 100 if use_norm and y_data.max() > 0 else y_data
         style = style_map.get(m, {'color': None, 'width': 2})
+        fig.add_trace(go.Scatter(x=plot_df['Date'], y=y_plot, mode='lines+markers', name=m, line=dict(color=style['color'], width=style['width']), customdata=y_data, hovertemplate=f"{m}: %{{customdata:,.2f}}"))
 
-        fig.add_trace(go.Scatter(
-            x=plot_df['Date'], y=y_plot, mode='lines+markers', name=m,
-            line=dict(color=style['color'], width=style['width']),
-            customdata=y_data, hovertemplate=hover_temp
-        ))
-
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', tickformat="%m-%d")
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
     fig.update_layout(height=450, hovermode='x unified', title=f"추세 분석 ({freq_option} 기준)", plot_bgcolor='white')
     st.plotly_chart(fig, use_container_width=True)
 
-    # ----------------------------------------------------
-    # [2] 상세 데이터 표
-    # ----------------------------------------------------
-    display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'CPM', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
-    table_df = agg_df[display_cols].copy()
-    table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
-    table_df.columns = ['날짜', 'CPA', '비용', '노출', 'CPM', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
+    table_df = agg_df.copy(); table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
+    st.dataframe(table_df[['Date', 'CPA', 'Cost', 'Impressions', 'CPM', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']], use_container_width=True, hide_index=True)
 
-    st.dataframe(
-        table_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "날짜": st.column_config.TextColumn("날짜"),
-            "CPA": st.column_config.NumberColumn("CPA", format="%d원"),
-            "비용": st.column_config.NumberColumn("비용", format="%d원"),
-            "노출": st.column_config.NumberColumn("노출", format="%d"),
-            "CPM": st.column_config.NumberColumn("CPM", format="%d원"),
-            "클릭": st.column_config.NumberColumn("클릭", format="%d"),
-            "전환": st.column_config.NumberColumn("전환", format="%d"),
-            "클릭률": st.column_config.NumberColumn("클릭률", format='%.2f%%'),
-            "CPC": st.column_config.NumberColumn("CPC", format="%d원"),
-            "전환율": st.column_config.NumberColumn("전환율", format='%.2f%%'),
-            "ROAS": st.column_config.NumberColumn("ROAS", format='%.0f%%'),
-        }
-    )
-
-    # ----------------------------------------------------
-    # [3] 성별/연령 분석
-    # ----------------------------------------------------
     st.divider()
     st.subheader("성별/연령 심층 분석")
     
-    # [방탄 코드] 컬럼 존재 여부부터 체크
     if demog_df.empty or 'Gender' not in demog_df.columns:
-        st.info("선택된 데이터에 성별/연령 정보가 없습니다. (구글의 경우 하단 시트에 AdGroup명과 Date가 일치하는 데이터가 있는지 확인해주세요)")
+        st.info("데이터가 없습니다. (날짜 범위나 시트 데이터를 확인해주세요)")
     else:
         valid_gender_check = demog_df[~demog_df['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
-        
         if valid_gender_check.empty:
-            st.info("선택된 데이터에 성별/연령 정보가 없습니다.")
+            st.info("성별/연령 정보가 없습니다.")
         else:
-            demog_agg = valid_gender_check.groupby(['Age', 'Gender']).agg({
-                'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
-            }).reset_index()
+            demog_agg = valid_gender_check.groupby(['Age', 'Gender']).agg({'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'}).reset_index()
             demog_agg['CPA'] = np.where(demog_agg['Conversions']>0, demog_agg['Cost']/demog_agg['Conversions'], 0)
             
             male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
@@ -539,25 +440,11 @@ if not trend_df.empty and metrics:
             fig_conv = go.Figure()
             fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
             fig_conv.add_trace(go.Bar(x=female_data['Age'], y=female_data['Conversions'], name='여성', marker_color='#F8C8C8'))
-            
-            fig_conv.update_layout(
-                barmode='group', xaxis_title="연령대", yaxis_title="전환수",
-                height=350, margin=dict(l=20, r=20, t=20, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
+            fig_conv.update_layout(barmode='group', height=350, margin=dict(l=20, r=20, t=20, b=20), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_conv, use_container_width=True)
             
-            def create_pivot_view(metric, fmt="{:,.0f}"):
-                piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
-                return piv.style.format(fmt)
-
             c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**CPA**")
-                st.dataframe(create_pivot_view('CPA', "{:,.0f}"), use_container_width=True)
-            with c2:
-                st.markdown("**비용**")
-                st.dataframe(create_pivot_view('Cost', "{:,.0f}"), use_container_width=True)
-
+            with c1: st.markdown("**CPA**"); st.dataframe(demog_agg.pivot_table(index='Gender', columns='Age', values='CPA', aggfunc='sum', fill_value=0).style.format("{:,.0f}"), use_container_width=True)
+            with c2: st.markdown("**비용**"); st.dataframe(demog_agg.pivot_table(index='Gender', columns='Age', values='Cost', aggfunc='sum', fill_value=0).style.format("{:,.0f}"), use_container_width=True)
 else:
-    st.warning("설정된 기간 내에 데이터가 없습니다. (왼쪽 사이드바의 날짜 범위를 확인해주세요)")
+    st.warning("설정된 기간 내에 데이터가 없습니다.")
