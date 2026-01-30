@@ -152,7 +152,8 @@ target_cpa_opportunity = st.sidebar.number_input("증액추천 CPA", value=50000
 st.sidebar.markdown("---")
 
 st.sidebar.header("기간 설정")
-preset = st.sidebar.selectbox("기간선택", ["오늘", "어제", "최근 3일", "최근 7일", "최근 14일", "최근 30일", "이번 달", "지난 달", "최근 90일"])
+# [수정] 기본값을 '최근 7일'(index=3)로 설정
+preset = st.sidebar.selectbox("기간선택", ["오늘", "어제", "최근 3일", "최근 7일", "최근 14일", "최근 30일", "이번 달", "지난 달", "최근 90일"], index=3)
 today = datetime.now().date()
 if preset == "오늘": s, e = today, today
 elif preset == "어제": s = today - timedelta(days=1); e = s
@@ -249,7 +250,6 @@ if not diag_res.empty:
         if sel_camp != '전체' and item['name'] != sel_camp: continue
         
         with st.expander(f"{item['color']}[{item['header']}]", expanded=False):
-            # [수정] 캠페인 요약 - 세로 줄바꿈 확실하게 적용
             st.markdown("##### 캠페인 기간별 성과 요약")
             c_3d, c_7d, c_14d = st.columns(3)
             
@@ -275,7 +275,6 @@ if not diag_res.empty:
             
             st.markdown("<hr style='margin: 10px 0; border: none; border-top: 1px solid #f0f2f6;'>", unsafe_allow_html=True)
 
-            # [수정] 소재별 진단 - 엔터(줄바꿈) 확실하게 적용 (HTML 활용)
             st.markdown("##### 소재별 진단")
             
             for idx, (_, r) in enumerate(item['data'].iterrows()):
@@ -283,7 +282,6 @@ if not diag_res.empty:
                 
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
                 
-                # 강제 줄바꿈을 위해 <br> 태그 사용
                 def format_stat_block(label, cpa, cost, conv):
                     cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
                     return f"""
@@ -385,7 +383,6 @@ if not chart_data.empty and metrics:
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
     table_df.columns = ['날짜', 'CPA', '비용', '노출', 'CPM', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
 
-    # [수정] 따옴표 문제 해결
     st.dataframe(
         table_df,
         use_container_width=True,
@@ -398,10 +395,10 @@ if not chart_data.empty and metrics:
             "CPM": st.column_config.NumberColumn("CPM", format="%d원"),
             "클릭": st.column_config.NumberColumn("클릭", format="%d"),
             "전환": st.column_config.NumberColumn("전환", format="%d"),
-            "클릭률": st.column_config.NumberColumn("클릭률", format="%.2f%%"),
+            "클릭률": st.column_config.NumberColumn("클릭률", format='%.2f%%'),
             "CPC": st.column_config.NumberColumn("CPC", format="%d원"),
-            "전환율": st.column_config.NumberColumn("전환율", format="%.2f%%"),
-            "ROAS": st.column_config.NumberColumn("ROAS", format="%.0f%%"),
+            "전환율": st.column_config.NumberColumn("전환율", format='%.2f%%'),
+            "ROAS": st.column_config.NumberColumn("ROAS", format='%.0f%%'),
         }
     )
 
@@ -424,8 +421,7 @@ if not chart_data.empty and metrics:
         male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
         female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
         
-        title_txt = f"{target_creative} 성별/연령별 전환수 비교" if target_creative else "성별/연령별 전환수 비교"
-        st.markdown(f"#### {title_txt}")
+        # 제목 제거 (요청사항 반영)
         
         fig_conv = go.Figure()
         fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
@@ -438,7 +434,7 @@ if not chart_data.empty and metrics:
         )
         st.plotly_chart(fig_conv, use_container_width=True)
         
-        st.markdown("#### 상세 데이터 그리드")
+        # 상세 데이터 그리드 제목 제거 (요청사항 반영)
         def create_pivot_view(metric, fmt="{:,.0f}"):
             piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
             return piv.style.format(fmt)
