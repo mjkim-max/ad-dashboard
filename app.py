@@ -319,23 +319,21 @@ else:
 st.markdown("---")
 st.subheader("2. 지표별 추세 및 상세 분석")
 
-# [핵심 로직 수정] 기본은 전체 데이터, '분석하기' 누르면 특정 소재 데이터
+# [변수 정의] target_creative 변수를 먼저 정의 (NameError 방지)
+target_creative = st.session_state['chart_target_creative']
 chart_data = target_df.copy()
 is_specific_creative = False
 
-if st.session_state['chart_target_creative']:
-    # 세션에 소재가 저장되어 있다면 그걸로 필터링
-    chart_data = chart_data[chart_data['Creative_ID'] == st.session_state['chart_target_creative']]
+if target_creative:
+    chart_data = chart_data[chart_data['Creative_ID'] == target_creative]
     is_specific_creative = True
     
-    st.info(f"현재 **'{st.session_state['chart_target_creative']}'** 소재를 집중 분석 중입니다.")
+    st.info(f"현재 **'{target_creative}'** 소재를 집중 분석 중입니다.")
     
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
         st.rerun()
 else:
-    # 소재가 없으면(기본) -> 사이드바 필터에 따른 '전체' 데이터 보여줌
-    # 안내 메시지 구성
     desc = []
     if sel_pl: desc.append(f"매체[{','.join(sel_pl)}]")
     if sel_camp != '전체': desc.append(f"캠페인[{sel_camp}]")
@@ -398,7 +396,7 @@ if not chart_data.empty and metrics:
     fig.update_layout(height=450, hovermode='x unified', title=f"추세 분석 ({freq_option} 기준)", plot_bgcolor='white')
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("#### 상세 데이터")
+    # st.markdown("#### 상세 데이터") # 요청으로 삭제
     display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'CPM', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
     table_df = agg_df[display_cols].copy()
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
@@ -429,17 +427,15 @@ if not chart_data.empty and metrics:
     st.divider()
     st.subheader("성별/연령 심층 분석")
     
-    # [조건] 1. 구글이 포함되어 있는지 확인 (sel_pl 활용)
+    # 1. 구글 포함 여부 확인
     has_google = 'Google' in sel_pl
     
-    # [조건] 2. 데이터 자체가 없는지 확인
+    # 2. 유효 데이터 확인
     valid_gender_check = chart_data[~chart_data['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
     
     if has_google:
-        # 구글이 섞여있으면 무조건 안내 메시지
         st.warning("⚠️ 구글 애즈가 포함된 조회입니다. 구글은 상세 타겟(성별/연령) 데이터를 제공하지 않으므로 분석이 제한됩니다. (Meta만 선택해주세요)")
     elif valid_gender_check.empty:
-        # 구글은 아닌데 데이터가 없는 경우
         st.info("선택된 데이터에 성별/연령 정보가 없습니다.")
     else:
         # Meta 단독 등 유효한 경우 -> 그래프 표시
@@ -451,10 +447,7 @@ if not chart_data.empty and metrics:
         male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
         female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
         
-        # 제목 설정
-        title_txt = f"{target_creative} 성별/연령별 전환수 비교" if target_creative else "성별/연령별 전환수 비교 (통합)"
-        # 제목 제거 요청이 있었으므로 주석 처리 (원하시면 주석 해제)
-        # st.markdown(f"#### {title_txt}")
+        # 제목 제거 (요청사항 반영 - 코드에서 완전 삭제)
         
         fig_conv = go.Figure()
         fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
