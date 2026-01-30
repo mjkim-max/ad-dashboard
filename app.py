@@ -189,10 +189,11 @@ st.subheader("1. 캠페인 성과 진단")
 diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))]
 diag_res = run_diagnosis(diag_base, target_cpa_warning)
 
+# [FIX] 에러 방지: 텍스트를 반드시 포함하여 반환
 def get_color_box(color):
-    if color == "Red": return st.error("종료 추천", icon=None)
-    elif color == "Yellow": return st.warning("판별 필요", icon=None)
-    elif color == "Blue": return st.info("성과 우수", icon=None)
+    if color == "Red": return st.error("🚨 종료 추천", icon="🚨")
+    elif color == "Yellow": return st.warning("⚠️ 판별 필요", icon="⚠️")
+    elif color == "Blue": return st.info("💎 성과 우수", icon="💎")
     else: return st.container(border=True)
 
 if not diag_res.empty:
@@ -214,8 +215,10 @@ if not diag_res.empty:
         c14 = grp['Cost_14'].sum(); cv14 = grp['Conversions_14'].sum()
         cpa14 = c14 / cv14 if cv14 > 0 else 0
 
+        h_txt = c_name
+        
         sorted_camps.append({
-            'name': c_name, 'data': grp, 'prio': prio, 'header': c_name, 'color': h_col,
+            'name': c_name, 'data': grp, 'prio': prio, 'header': h_txt, 'color': h_col,
             'stats_3': (cpa3, c3, cv3),
             'stats_7': (cpa7, c7, cv7),
             'stats_14': (cpa14, c14, cv14)
@@ -227,8 +230,6 @@ if not diag_res.empty:
         if sel_camp != '전체' and item['name'] != sel_camp: continue
         
         with st.expander(f"{item['color']}[{item['header']}]", expanded=False):
-            
-            # 캠페인 요약
             st.markdown("##### 📊 캠페인 기간별 성과 요약")
             c_3d, c_7d, c_14d = st.columns(3)
             with c_3d:
@@ -249,17 +250,13 @@ if not diag_res.empty:
             
             st.divider()
 
-            # 소재별 진단
             st.markdown("##### 📂 소재별 진단")
-            for _, r in item['data'].iterrows():
+            # [FIX] enumerate로 인덱스를 가져와 버튼 키에 추가하여 중복 방지
+            for idx, (_, r) in enumerate(item['data'].iterrows()):
                 with get_color_box(r['Status_Color']):
-                    # 레이아웃: [데이터(2.5) | 진단(1.0) | 버튼(0.5)]
                     c1, c2, c3 = st.columns([2.5, 1.0, 0.5])
-                    
                     with c1:
                         st.markdown(f"**{r['Creative_ID']}**")
-                        # 3일/7일/14일 데이터를 모두 동일한 폰트 사이즈(markdown)로 표시
-                        # 데이터 형식: 3일: CPA [X] / 비용 X / 전환 X
                         
                         def fmt_line(label, cpa, cost, conv):
                             cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
@@ -273,9 +270,9 @@ if not diag_res.empty:
                         t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange"
                         st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
                         st.caption(r['Diag_Detail'])
-                    
                     with c3:
-                        unique_key = f"btn_{item['name']}_{r['AdGroup']}_{r['Creative_ID']}"
+                        # [FIX] 버튼 키 유니크하게 생성 (캠페인+소재+인덱스)
+                        unique_key = f"btn_{item['name']}_{r['Creative_ID']}_{idx}"
                         if st.button("분석하기", key=unique_key):
                             st.session_state['chart_target_creative'] = r['Creative_ID']
                             st.rerun()
@@ -289,11 +286,14 @@ st.markdown("---")
 st.subheader("2. 지표별 추세 및 상세 분석")
 
 target_creative = st.session_state['chart_target_creative']
-chart_data = target_df.copy()
+# [FIX] 그래프 데이터도 날짜 필터를 반영하도록 수정
+chart_data = df_filtered.copy()
 
 if target_creative:
     st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다. (설정된 기간: {date_range[0]} ~ {date_range[1]})")
+    # 필터링된 데이터셋에서 소재 찾기
     chart_data = df_filtered[df_filtered['Creative_ID'] == target_creative]
+    
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
         st.rerun()
@@ -369,4 +369,4 @@ if not chart_data.empty and metrics:
         }
     )
 else:
-    st.warning("설정된 기간 내에 데이터가 없습니다.")
+    st.warning("설정된 기간 내에 데이터가 없습니다. (왼쪽 사이드바의 날짜 범위를 확인해주세요)")
