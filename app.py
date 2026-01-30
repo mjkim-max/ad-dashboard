@@ -64,7 +64,7 @@ def load_main_data():
 
     try:
         df_meta = pd.read_csv(convert_google_sheet_url(META_SHEET_URL))
-        # [방탄 코드] 컬럼 공백 제거
+        # [방탄 코드] 컬럼 공백 제거 (매우 중요)
         df_meta.columns = df_meta.columns.str.strip()
         df_meta = df_meta.rename(columns=rename_map)
         df_meta['Platform'] = 'Meta'
@@ -74,6 +74,7 @@ def load_main_data():
 
     try:
         df_google = pd.read_csv(convert_google_sheet_url(GOOGLE_SHEET_URL))
+        # [방탄 코드] 컬럼 공백 제거
         df_google.columns = df_google.columns.str.strip()
         df_google = df_google.rename(columns=rename_map)
         df_google['Platform'] = 'Google'
@@ -92,9 +93,10 @@ def load_main_data():
                 df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # [방탄 코드] 필수 컬럼 강제 생성
+    # [방탄 코드] 필수 컬럼 강제 생성 (KeyError 방지)
     if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
     if 'Age' not in df.columns: df['Age'] = 'Unknown'
+    
     df['Gender'] = df['Gender'].fillna('Unknown')
     df['Age'] = df['Age'].fillna('Unknown')
     df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
@@ -106,7 +108,7 @@ def load_google_demo_data():
     try:
         df = pd.read_csv(convert_google_sheet_url(GOOGLE_DEMO_SHEET_URL))
         
-        # [중요] 컬럼명 앞뒤 공백 제거 (KeyError 방지)
+        # [핵심 수정] 컬럼명 앞뒤 공백 제거 (이게 KeyError 원인입니다)
         df.columns = df.columns.str.strip()
         
         # 이름 매핑
@@ -130,13 +132,12 @@ def load_google_demo_data():
                     df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # [방탄 코드] 만약 Gender/Age가 없으면 강제로 생성 (에러 방지)
+        # [방탄 코드] 만약 Gender/Age가 없으면 강제로 생성해서 에러 막음
         if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
         if 'Age' not in df.columns: df['Age'] = 'Unknown'
         
         # 한글화
-        if 'Gender' in df.columns:
-            df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
+        df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
             
         return df
     except:
@@ -515,7 +516,7 @@ if not trend_df.empty and metrics:
     st.divider()
     st.subheader("성별/연령 심층 분석")
     
-    # [방탄 코드] 데이터 유효성 검사
+    # [방탄 코드] 컬럼 존재 여부부터 체크
     if demog_df.empty or 'Gender' not in demog_df.columns:
         st.info("선택된 데이터에 성별/연령 정보가 없습니다. (구글의 경우 하단 시트에 AdGroup명과 Date가 일치하는 데이터가 있는지 확인해주세요)")
     else:
