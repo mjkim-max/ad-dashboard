@@ -77,12 +77,10 @@ def load_data():
     # [데이터 보정]
     if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
     if 'Age' not in df.columns: df['Age'] = 'Unknown'
-    
-    # 결측치 처리
     df['Gender'] = df['Gender'].fillna('Unknown')
     df['Age'] = df['Age'].fillna('Unknown')
     
-    # 데이터 정규화
+    # 데이터 정규화 (Male->남성, Female->여성)
     df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
             
     return df
@@ -202,7 +200,6 @@ diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))
 diag_res = run_diagnosis(diag_base, target_cpa_warning)
 
 def get_color_box(color):
-    # 이모지 제거
     if color == "Red": return st.error("종료 추천", icon=None)
     elif color == "Yellow": return st.warning("판별 필요", icon=None)
     elif color == "Blue": return st.info("성과 우수", icon=None)
@@ -262,23 +259,18 @@ if not diag_res.empty:
             
             st.divider()
 
-            # [UI 복구] 소재별 진단 (Grid Layout)
+            # 소재별 진단 (Grid Layout)
             st.markdown("##### 소재별 진단")
             
             for idx, (_, r) in enumerate(item['data'].iterrows()):
                 st.markdown(f"#### {r['Creative_ID']}")
                 
-                # 4분할 레이아웃 (3일 / 7일 / 14일 / 진단)
+                # 4분할 그리드 레이아웃
                 col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
                 
                 def format_stat_block(label, cpa, cost, conv):
                     cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
-                    # 줄바꿈을 사용하여 정보 나열
-                    return f"""
-                    **{label}** **CPA** {cpa_val}원  
-                    **비용** {cost:,.0f}원  
-                    **전환** {conv:,.0f}
-                    """
+                    return f"**{label}**\n\n**CPA** {cpa_val}원\n\n**비용** {cost:,.0f}원\n\n**전환** {conv:,.0f}"
 
                 with col1:
                     st.markdown(format_stat_block("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']))
@@ -312,7 +304,6 @@ chart_data = df_filtered.copy()
 
 if target_creative:
     st.info(f"현재 **'{target_creative}'** 소재를 집중 분석 중입니다. (설정된 기간: {date_range[0]} ~ {date_range[1]})")
-    # 차트 데이터 필터링
     chart_data = df_filtered[df_filtered['Creative_ID'] == target_creative]
     
     if st.button("전체 목록으로 차트 초기화"):
@@ -371,6 +362,7 @@ if not chart_data.empty and metrics:
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
     table_df.columns = ['날짜', 'CPA', '비용', '노출', 'CPM', '클릭', '전환', '클릭률', 'CPC', '전환율', 'ROAS']
 
+    # [수정] 오류가 발생했던 format 문자열 수정 (안전하게 작은따옴표 사용)
     st.dataframe(
         table_df,
         use_container_width=True,
@@ -383,6 +375,61 @@ if not chart_data.empty and metrics:
             "CPM": st.column_config.NumberColumn("CPM", format="%d원"),
             "클릭": st.column_config.NumberColumn("클릭", format="%d"),
             "전환": st.column_config.NumberColumn("전환", format="%d"),
-            "클릭률": st.column_config.NumberColumn("클릭률", format="%.2f%%"),
+            "클릭률": st.column_config.NumberColumn("클릭률", format='%.2f%%'),
             "CPC": st.column_config.NumberColumn("CPC", format="%d원"),
-            "전환율": st.column_config.NumberColumn("전환율", format="%.2f%%
+            "전환율": st.column_config.NumberColumn("전환율", format='%.2f%%'),
+            "ROAS": st.column_config.NumberColumn("ROAS", format='%.0f%%'),
+        }
+    )
+
+    # -------------------------------------------------------------------
+    # [NEW] 성별/연령 분석 (조건부 표시)
+    # -------------------------------------------------------------------
+    st.divider()
+    st.subheader("성별/연령 심층 분석")
+    
+    valid_gender_check = chart_data[~chart_data['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
+    
+    if valid_gender_check.empty:
+        st.info("현재 선택된 소재(또는 구글 애즈)는 성별/연령 상세 데이터를 제공하지 않습니다.")
+    else:
+        # 그룹핑
+        demog_agg = chart_data.groupby(['Age', 'Gender']).agg({
+            'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
+        }).reset_index()
+        demog_agg['CPA'] = np.where(demog_agg['Conversions']>0, demog_agg['Cost']/demog_agg['Conversions'], 0)
+        
+        male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
+        female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
+        
+        # 1. 상단: 전환수 막대 그래프
+        title_txt = f"{target_creative} 성별/연령별 전환수 비교" if target_creative else "성별/연령별 전환수 비교"
+        st.markdown(f"#### {title_txt}")
+        
+        fig_conv = go.Figure()
+        fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
+        fig_conv.add_trace(go.Bar(x=female_data['Age'], y=female_data['Conversions'], name='여성', marker_color='#F8C8C8'))
+        
+        fig_conv.update_layout(
+            barmode='group', xaxis_title="연령대", yaxis_title="전환수",
+            height=350, margin=dict(l=20, r=20, t=20, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_conv, use_container_width=True)
+        
+        # 2. 하단: 데이터 그리드 (CPA, 비용)
+        st.markdown("#### 상세 데이터 그리드")
+        def create_pivot_view(metric, fmt="{:,.0f}"):
+            piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
+            return piv.style.format(fmt)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**CPA**")
+            st.dataframe(create_pivot_view('CPA', "{:,.0f}"), use_container_width=True)
+        with c2:
+            st.markdown("**비용**")
+            st.dataframe(create_pivot_view('Cost', "{:,.0f}"), use_container_width=True)
+
+else:
+    st.warning("설정된 기간 내에 데이터가 없습니다. (왼쪽 사이드바의 날짜 범위를 확인해주세요)")
