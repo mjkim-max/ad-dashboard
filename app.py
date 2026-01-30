@@ -45,8 +45,8 @@ def load_data():
         '구매': 'Conversions', '전환': 'Conversions', '전환수': 'Conversions',
         '구매 전환값': 'Conversion_Value', '전환 가치': 'Conversion_Value', '전환값': 'Conversion_Value',
         '상태': 'Status', '소재 상태': 'Status', '광고 상태': 'Status',
-        '성별': 'Gender', 'Gender': 'Gender', 
-        '연령': 'Age', 'Age': 'Age', 'Age Group': 'Age'
+        'Gender': 'Gender', '성별': 'Gender', 
+        'Age': 'Age', '연령': 'Age'
     }
 
     try:
@@ -78,7 +78,7 @@ def load_data():
     if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
     if 'Age' not in df.columns: df['Age'] = 'Unknown'
     
-    # 결측치 처리 (구글 데이터 등)
+    # 결측치 처리
     df['Gender'] = df['Gender'].fillna('Unknown')
     df['Age'] = df['Age'].fillna('Unknown')
     
@@ -202,9 +202,9 @@ diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))
 diag_res = run_diagnosis(diag_base, target_cpa_warning)
 
 def get_color_box(color):
-    if color == "Red": return st.error("🚨 종료 추천", icon="🚨")
-    elif color == "Yellow": return st.warning("⚠️ 판별 필요", icon="⚠️")
-    elif color == "Blue": return st.info("💎 성과 우수", icon="💎")
+    if color == "Red": return st.error("종료 추천", icon=None)
+    elif color == "Yellow": return st.warning("판별 필요", icon=None)
+    elif color == "Blue": return st.info("성과 우수", icon=None)
     else: return st.container(border=True)
 
 if not diag_res.empty:
@@ -241,27 +241,27 @@ if not diag_res.empty:
         if sel_camp != '전체' and item['name'] != sel_camp: continue
         
         with st.expander(f"{item['color']}[{item['header']}]", expanded=False):
-            st.markdown("##### 📊 캠페인 기간별 성과 요약")
+            st.markdown("##### 캠페인 기간별 성과 요약")
             c_3d, c_7d, c_14d = st.columns(3)
             with c_3d:
-                st.markdown("**📅 최근 3일**")
+                st.markdown("**최근 3일**")
                 cpa, cost, conv = item['stats_3']
                 st.metric("CPA", f"{cpa:,.0f}원")
                 st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
             with c_7d:
-                st.markdown("**📅 최근 7일**")
+                st.markdown("**최근 7일**")
                 cpa, cost, conv = item['stats_7']
                 st.metric("CPA", f"{cpa:,.0f}원")
                 st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
             with c_14d:
-                st.markdown("**📅 최근 14일**")
+                st.markdown("**최근 14일**")
                 cpa, cost, conv = item['stats_14']
                 st.metric("CPA", f"{cpa:,.0f}원")
                 st.caption(f"비용: {cost/10000:,.1f}만 / 전환: {conv:,.0f}")
             
             st.divider()
 
-            st.markdown("##### 📂 소재별 진단")
+            st.markdown("##### 소재별 진단")
             for idx, (_, r) in enumerate(item['data'].iterrows()):
                 with get_color_box(r['Status_Color']):
                     c1, c2, c3 = st.columns([2.5, 1.0, 0.5])
@@ -295,8 +295,10 @@ target_creative = st.session_state['chart_target_creative']
 chart_data = df_filtered.copy()
 
 if target_creative:
-    st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다. (설정된 기간: {date_range[0]} ~ {date_range[1]})")
+    st.info(f"현재 **'{target_creative}'** 소재를 집중 분석 중입니다. (설정된 기간: {date_range[0]} ~ {date_range[1]})")
+    # 차트 데이터 필터링
     chart_data = df_filtered[df_filtered['Creative_ID'] == target_creative]
+    
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
         st.rerun()
@@ -347,7 +349,7 @@ if not chart_data.empty and metrics:
     fig.update_layout(height=450, hovermode='x unified', title=f"추세 분석 ({freq_option} 기준)", plot_bgcolor='white')
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("#### 📋 상세 데이터")
+    st.markdown("#### 상세 데이터")
     display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'CPM', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
     table_df = agg_df[display_cols].copy()
     table_df['Date'] = table_df['Date'].dt.strftime('%Y-%m-%d')
@@ -373,20 +375,17 @@ if not chart_data.empty and metrics:
     )
 
     # -------------------------------------------------------------------
-    # [NEW] 성별/연령 분석 (조건부 표시: 데이터가 있을 때만)
+    # [NEW] 성별/연령 분석 (조건부 표시)
     # -------------------------------------------------------------------
     st.divider()
-    st.subheader("🎯 성별/연령 심층 분석")
+    st.subheader("성별/연령 심층 분석")
     
-    # 데이터 유효성 검사 (Unknown이 아닌 유효한 성별 데이터가 있는지 확인)
     valid_gender_check = chart_data[~chart_data['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
     
     if valid_gender_check.empty:
-        # 데이터가 없거나(구글 등) 알수없음만 있는 경우
-        st.info("ℹ️ 현재 선택된 소재(또는 구글 애즈)는 성별/연령 상세 데이터를 제공하지 않습니다.")
+        st.info("현재 선택된 소재(또는 구글 애즈)는 성별/연령 상세 데이터를 제공하지 않습니다.")
     else:
-        # 메타 데이터 등 유효 데이터가 있을 때만 실행
-        age_order = sorted(chart_data['Age'].unique())
+        # 그룹핑
         demog_agg = chart_data.groupby(['Age', 'Gender']).agg({
             'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
         }).reset_index()
@@ -395,33 +394,34 @@ if not chart_data.empty and metrics:
         male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
         female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
         
-        st.markdown("#### 📊 성별/연령별 CPA 비교 (낮을수록 좋음)")
-        fig_cpa = go.Figure()
-        fig_cpa.add_trace(go.Bar(x=male_data['Age'], y=male_data['CPA'], name='남성', marker_color='#9EB9F3'))
-        fig_cpa.add_trace(go.Bar(x=female_data['Age'], y=female_data['CPA'], name='여성', marker_color='#F8C8C8'))
+        # 1. 상단: 전환수 막대 그래프 (변경됨)
+        title_txt = f"{target_creative} 성별/연령별 전환수 비교" if target_creative else "성별/연령별 전환수 비교"
+        st.markdown(f"#### {title_txt}")
         
-        fig_cpa.update_layout(
-            barmode='group', xaxis_title="연령대", yaxis_title="CPA (원)",
+        fig_conv = go.Figure()
+        fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
+        fig_conv.add_trace(go.Bar(x=female_data['Age'], y=female_data['Conversions'], name='여성', marker_color='#F8C8C8'))
+        
+        fig_conv.update_layout(
+            barmode='group', xaxis_title="연령대", yaxis_title="전환수",
             height=350, margin=dict(l=20, r=20, t=20, b=20),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
-        st.plotly_chart(fig_cpa, use_container_width=True)
+        st.plotly_chart(fig_conv, use_container_width=True)
         
-        st.markdown("#### 🔢 상세 데이터 그리드")
+        # 2. 하단: 데이터 그리드 (CPA, 비용)
+        st.markdown("#### 상세 데이터 그리드")
         def create_pivot_view(metric, fmt="{:,.0f}"):
             piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
             return piv.style.format(fmt)
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         with c1:
-            st.markdown("**✅ 전환수**")
-            st.dataframe(create_pivot_view('Conversions', "{:,.0f}"), use_container_width=True)
+            st.markdown("**CPA**")
+            st.dataframe(create_pivot_view('CPA', "{:,.0f}"), use_container_width=True)
         with c2:
-            st.markdown("**💸 비용**")
+            st.markdown("**비용**")
             st.dataframe(create_pivot_view('Cost', "{:,.0f}"), use_container_width=True)
-        with c3:
-            st.markdown("**👀 노출수**")
-            st.dataframe(create_pivot_view('Impressions', "{:,.0f}"), use_container_width=True)
 
 else:
     st.warning("설정된 기간 내에 데이터가 없습니다. (왼쪽 사이드바의 날짜 범위를 확인해주세요)")
