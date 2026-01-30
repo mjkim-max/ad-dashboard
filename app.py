@@ -23,7 +23,7 @@ st.markdown("""
 META_SHEET_URL = "https://docs.google.com/spreadsheets/d/13PG6s372l1SucujsACowlihRqOl8YDY4wCv_PEYgPTU/edit?gid=29934845#gid=29934845"
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1jEB4zTYPb2mrxZGXriju6RymHo1nEMC8QIVzqgiHwdg/edit?gid=141038195#gid=141038195"
 
-# 2. [NEW] 세트/광고그룹 전용 시트 (업데이트 완료)
+# 2. 세트/광고그룹 전용 시트 (구글 인구통계)
 GOOGLE_DEMO_SHEET_URL = "https://docs.google.com/spreadsheets/d/17z8PyqTdVFyF4QuTUKe6b0T_acWw2QbfvUP8DnTo5LM/edit?gid=29934845#gid=29934845"
 
 # [세션 상태 초기화]
@@ -47,7 +47,7 @@ def convert_google_sheet_url(url):
 @st.cache_data(ttl=600)
 def load_main_data():
     dfs = []
-    # 메인 시트용 매핑 (한글 컬럼명 지원)
+    # 메인 시트용 매핑
     rename_map = {
         '일': 'Date', '날짜': 'Date',
         '캠페인 이름': 'Campaign', '캠페인': 'Campaign',
@@ -63,14 +63,19 @@ def load_main_data():
     }
 
     try:
-        df_meta = pd.read_csv(convert_google_sheet_url(META_SHEET_URL)).rename(columns=rename_map)
+        df_meta = pd.read_csv(convert_google_sheet_url(META_SHEET_URL))
+        # [방탄 코드] 컬럼 공백 제거
+        df_meta.columns = df_meta.columns.str.strip()
+        df_meta = df_meta.rename(columns=rename_map)
         df_meta['Platform'] = 'Meta'
         if 'Status' not in df_meta.columns: df_meta['Status'] = 'On'
         dfs.append(df_meta)
     except: pass
 
     try:
-        df_google = pd.read_csv(convert_google_sheet_url(GOOGLE_SHEET_URL)).rename(columns=rename_map)
+        df_google = pd.read_csv(convert_google_sheet_url(GOOGLE_SHEET_URL))
+        df_google.columns = df_google.columns.str.strip()
+        df_google = df_google.rename(columns=rename_map)
         df_google['Platform'] = 'Google'
         if 'Status' not in df_google.columns: df_google['Status'] = 'On'
         dfs.append(df_google)
@@ -87,6 +92,7 @@ def load_main_data():
                 df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
+    # [방탄 코드] 필수 컬럼 강제 생성
     if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
     if 'Age' not in df.columns: df['Age'] = 'Unknown'
     df['Gender'] = df['Gender'].fillna('Unknown')
@@ -97,33 +103,38 @@ def load_main_data():
 
 @st.cache_data(ttl=600)
 def load_google_demo_data():
-    # 세트 전용 시트 로드
     try:
-        # 영문 컬럼명 그대로 매핑 (제공해주신 형식)
+        df = pd.read_csv(convert_google_sheet_url(GOOGLE_DEMO_SHEET_URL))
+        
+        # [중요] 컬럼명 앞뒤 공백 제거 (KeyError 방지)
+        df.columns = df.columns.str.strip()
+        
+        # 이름 매핑
         rename_map = {
-            'Date': 'Date',
-            'Campaign': 'Campaign',
-            'AdGroup': 'AdGroup',
-            'Gender': 'Gender',
-            'Age': 'Age',
-            'Cost': 'Cost',
-            'Impressions': 'Impressions',
-            'Clicks': 'Clicks',
-            'Conversions': 'Conversions',
-            'Conversion_Value': 'Conversion_Value',
+            'Date': 'Date', 'Campaign': 'Campaign', 'AdGroup': 'AdGroup',
+            'Gender': 'Gender', 'Age': 'Age', 'Cost': 'Cost',
+            'Impressions': 'Impressions', 'Clicks': 'Clicks',
+            'Conversions': 'Conversions', 'Conversion_Value': 'Conversion_Value',
             'Status': 'Status'
         }
-        df = pd.read_csv(convert_google_sheet_url(GOOGLE_DEMO_SHEET_URL)).rename(columns=rename_map)
+        df = df.rename(columns=rename_map)
         
+        # 날짜 변환
         if 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
 
+        # 숫자형 변환
         for col in ['Cost', 'Conversions', 'Impressions', 'Clicks', 'Conversion_Value']:
             if col in df.columns:
                 if df[col].dtype == 'object':
                     df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                
+        
+        # [방탄 코드] 만약 Gender/Age가 없으면 강제로 생성 (에러 방지)
+        if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
+        if 'Age' not in df.columns: df['Age'] = 'Unknown'
+        
+        # 한글화
         if 'Gender' in df.columns:
             df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
             
@@ -212,12 +223,12 @@ if c_m.checkbox("Meta", True): sel_pl.append("Meta")
 if c_g.checkbox("Google", True): sel_pl.append("Google")
 if 'Platform' in df_raw.columns: df_raw = df_raw[df_raw['Platform'].isin(sel_pl)]
 
-# [필터링] 메인 데이터
+# [1차 필터링] 기간 (메인 데이터)
 df_filtered = df_raw.copy()
 if len(date_range) == 2:
     df_filtered = df_filtered[(df_filtered['Date'].dt.date >= date_range[0]) & (df_filtered['Date'].dt.date <= date_range[1])]
 
-# [필터링] 구글 데모 데이터 (날짜 기준)
+# [1차 필터링] 기간 (구글 데모 데이터)
 df_google_demo_filtered = df_google_demo_raw.copy()
 if not df_google_demo_filtered.empty and 'Date' in df_google_demo_filtered.columns and len(date_range) == 2:
     df_google_demo_filtered = df_google_demo_filtered[
@@ -367,6 +378,7 @@ st.subheader("2. 지표별 추세 및 상세 분석")
 
 target_creative = st.session_state['chart_target_creative']
 
+# [핵심] 차트 데이터 준비
 trend_df = target_df.copy()
 demog_df = pd.DataFrame() 
 is_specific = False
@@ -503,44 +515,48 @@ if not trend_df.empty and metrics:
     st.divider()
     st.subheader("성별/연령 심층 분석")
     
-    valid_gender_check = demog_df[~demog_df['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
-    
-    if valid_gender_check.empty:
+    # [방탄 코드] 데이터 유효성 검사
+    if demog_df.empty or 'Gender' not in demog_df.columns:
         st.info("선택된 데이터에 성별/연령 정보가 없습니다. (구글의 경우 하단 시트에 AdGroup명과 Date가 일치하는 데이터가 있는지 확인해주세요)")
     else:
-        demog_agg = valid_gender_check.groupby(['Age', 'Gender']).agg({
-            'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
-        }).reset_index()
-        demog_agg['CPA'] = np.where(demog_agg['Conversions']>0, demog_agg['Cost']/demog_agg['Conversions'], 0)
+        valid_gender_check = demog_df[~demog_df['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
         
-        male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
-        female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
-        
-        title_txt = f"{target_creative} 성별/연령별 전환수" if is_specific else "성별/연령별 전환수 (통합)"
-        st.markdown(f"#### {title_txt}")
-        
-        fig_conv = go.Figure()
-        fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
-        fig_conv.add_trace(go.Bar(x=female_data['Age'], y=female_data['Conversions'], name='여성', marker_color='#F8C8C8'))
-        
-        fig_conv.update_layout(
-            barmode='group', xaxis_title="연령대", yaxis_title="전환수",
-            height=350, margin=dict(l=20, r=20, t=20, b=20),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(fig_conv, use_container_width=True)
-        
-        def create_pivot_view(metric, fmt="{:,.0f}"):
-            piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
-            return piv.style.format(fmt)
+        if valid_gender_check.empty:
+            st.info("선택된 데이터에 성별/연령 정보가 없습니다.")
+        else:
+            demog_agg = valid_gender_check.groupby(['Age', 'Gender']).agg({
+                'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
+            }).reset_index()
+            demog_agg['CPA'] = np.where(demog_agg['Conversions']>0, demog_agg['Cost']/demog_agg['Conversions'], 0)
+            
+            male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
+            female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
+            
+            title_txt = f"{target_creative} 성별/연령별 전환수" if is_specific else "성별/연령별 전환수 (통합)"
+            st.markdown(f"#### {title_txt}")
+            
+            fig_conv = go.Figure()
+            fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
+            fig_conv.add_trace(go.Bar(x=female_data['Age'], y=female_data['Conversions'], name='여성', marker_color='#F8C8C8'))
+            
+            fig_conv.update_layout(
+                barmode='group', xaxis_title="연령대", yaxis_title="전환수",
+                height=350, margin=dict(l=20, r=20, t=20, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_conv, use_container_width=True)
+            
+            def create_pivot_view(metric, fmt="{:,.0f}"):
+                piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
+                return piv.style.format(fmt)
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**CPA**")
-            st.dataframe(create_pivot_view('CPA', "{:,.0f}"), use_container_width=True)
-        with c2:
-            st.markdown("**비용**")
-            st.dataframe(create_pivot_view('Cost', "{:,.0f}"), use_container_width=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**CPA**")
+                st.dataframe(create_pivot_view('CPA', "{:,.0f}"), use_container_width=True)
+            with c2:
+                st.markdown("**비용**")
+                st.dataframe(create_pivot_view('Cost', "{:,.0f}"), use_container_width=True)
 
 else:
     st.warning("설정된 기간 내에 데이터가 없습니다. (왼쪽 사이드바의 날짜 범위를 확인해주세요)")
