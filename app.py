@@ -102,6 +102,7 @@ def run_diagnosis(df, target_cpa):
     results = []
 
     for _, row in m.iterrows():
+        # 비용 3000원 미만은 진단 제외
         if row['Cost_3'] < 3000: continue
         
         cpa3, cpa7, cpa14 = row['CPA_3'], row['CPA_7'], row['CPA_14']
@@ -189,13 +190,6 @@ st.subheader("1. 캠페인 성과 진단")
 diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))]
 diag_res = run_diagnosis(diag_base, target_cpa_warning)
 
-# [FIX] 에러 방지: 텍스트를 반드시 포함하여 반환
-def get_color_box(color):
-    if color == "Red": return st.error("🚨 종료 추천", icon="🚨")
-    elif color == "Yellow": return st.warning("⚠️ 판별 필요", icon="⚠️")
-    elif color == "Blue": return st.info("💎 성과 우수", icon="💎")
-    else: return st.container(border=True)
-
 if not diag_res.empty:
     camp_grps = diag_res.groupby('Campaign')
     sorted_camps = []
@@ -250,32 +244,48 @@ if not diag_res.empty:
             
             st.divider()
 
+            # [UI 변경] 요청하신 레이아웃 적용 (그리드 형태)
             st.markdown("##### 📂 소재별 진단")
-            # [FIX] enumerate로 인덱스를 가져와 버튼 키에 추가하여 중복 방지
+            
             for idx, (_, r) in enumerate(item['data'].iterrows()):
-                with get_color_box(r['Status_Color']):
-                    c1, c2, c3 = st.columns([2.5, 1.0, 0.5])
-                    with c1:
-                        st.markdown(f"**{r['Creative_ID']}**")
-                        
-                        def fmt_line(label, cpa, cost, conv):
-                            cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
-                            return f"**{label}:** CPA [{cpa_val}원] / 비용 {cost:,.0f}원 / 전환 {conv:,.0f}"
+                st.markdown(f"#### {r['Creative_ID']}")
+                
+                # [레이아웃] 3일 | 7일 | 14일 | 진단/버튼
+                col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
+                
+                # --- 공통 데이터 포맷팅 함수 ---
+                def format_stat_block(label, cpa, cost, conv):
+                    cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
+                    return f"""
+                    **{label}** **CPA** {cpa_val}원  
+                    **비용** {cost:,.0f}원  
+                    **전환** {conv:,.0f}
+                    """
 
-                        st.markdown(fmt_line("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']))
-                        st.markdown(fmt_line("7일", r['CPA_7'], r['Cost_7'], r['Conversions_7']))
-                        st.markdown(fmt_line("14일", r['CPA_14'], r['Cost_14'], r['Conversions_14']))
-                        
-                    with c2:
-                        t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange"
-                        st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
-                        st.caption(r['Diag_Detail'])
-                    with c3:
-                        # [FIX] 버튼 키 유니크하게 생성 (캠페인+소재+인덱스)
-                        unique_key = f"btn_{item['name']}_{r['Creative_ID']}_{idx}"
-                        if st.button("분석하기", key=unique_key):
-                            st.session_state['chart_target_creative'] = r['Creative_ID']
-                            st.rerun()
+                with col1:
+                    st.markdown(format_stat_block("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']))
+                
+                with col2:
+                    st.markdown(format_stat_block("7일", r['CPA_7'], r['Cost_7'], r['Conversions_7']))
+                
+                with col3:
+                    st.markdown(format_stat_block("14일", r['CPA_14'], r['Cost_14'], r['Conversions_14']))
+                
+                with col4:
+                    # 진단 결과 (색상 텍스트)
+                    t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange"
+                    st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
+                    st.caption(r['Diag_Detail'])
+                    
+                    # 분석하기 버튼 (유니크 키 적용)
+                    unique_key = f"btn_{item['name']}_{r['Creative_ID']}_{idx}"
+                    if st.button("분석하기", key=unique_key):
+                        st.session_state['chart_target_creative'] = r['Creative_ID']
+                        st.rerun()
+                
+                # 구분선 추가 (각 소재 사이)
+                st.divider()
+
 else:
     st.info("진단 데이터 부족")
 
@@ -286,14 +296,12 @@ st.markdown("---")
 st.subheader("2. 지표별 추세 및 상세 분석")
 
 target_creative = st.session_state['chart_target_creative']
-# [FIX] 그래프 데이터도 날짜 필터를 반영하도록 수정
+# 그래프 데이터는 필터링된 데이터 기반
 chart_data = df_filtered.copy()
 
 if target_creative:
     st.info(f"🔎 현재 **'{target_creative}'** 소재를 집중 분석 중입니다. (설정된 기간: {date_range[0]} ~ {date_range[1]})")
-    # 필터링된 데이터셋에서 소재 찾기
     chart_data = df_filtered[df_filtered['Creative_ID'] == target_creative]
-    
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
         st.rerun()
