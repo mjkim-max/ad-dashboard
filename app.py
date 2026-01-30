@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, date
 
 # -----------------------------------------------------------------------------
-# [SETUP] 페이지 설정
+# [SETUP] 페이지 설정 (여백 최소화 CSS 주입)
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="광고 성과 관리 BI", page_icon=None, layout="wide")
 
@@ -175,7 +175,6 @@ if c_m.checkbox("Meta", True): sel_pl.append("Meta")
 if c_g.checkbox("Google", True): sel_pl.append("Google")
 if 'Platform' in df_raw.columns: df_raw = df_raw[df_raw['Platform'].isin(sel_pl)]
 
-# [1차 필터링] 기간 및 플랫폼
 df_filtered = df_raw.copy()
 if len(date_range) == 2:
     df_filtered = df_filtered[(df_filtered['Date'].dt.date >= date_range[0]) & (df_filtered['Date'].dt.date <= date_range[1])]
@@ -196,7 +195,6 @@ if 'Status' in df_filtered.columns:
     if status_opt == "게재중 (On)": df_filtered = df_filtered[df_filtered['Status'] == 'On']
     elif status_opt == "비게재 (Off)": df_filtered = df_filtered[df_filtered['Status'] == 'Off']
 
-# [최종 필터링된 데이터] - 차트 및 진단의 베이스
 target_df = df_filtered.copy()
 if sel_camp != '전체': target_df = target_df[target_df['Campaign'] == sel_camp]
 if sel_grp != '전체': target_df = target_df[target_df['AdGroup'] == sel_grp]
@@ -208,9 +206,7 @@ if sel_crv: target_df = target_df[target_df['Creative_ID'].isin(sel_crv)]
 st.title("광고 성과 관리 대시보드")
 st.subheader("1. 캠페인 성과 진단")
 
-# 진단은 최근 14일 데이터 기준 (전체 raw에서 가져옴) -> 필터링 적용된 것으로 변경
-# 사용자 필터에 따라 진단 대상도 바뀌어야 함
-diag_base = target_df[target_df['Date'] >= (target_df['Date'].max() - timedelta(days=14))]
+diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))]
 diag_res = run_diagnosis(diag_base, target_cpa_warning)
 
 def get_color_box(color):
@@ -250,7 +246,6 @@ if not diag_res.empty:
     sorted_camps.sort(key=lambda x: x['prio'])
 
     for item in sorted_camps:
-        # 이미 target_df에서 필터링 되었으므로 여기서 또 필터링 할 필요는 없지만 안전장치
         if sel_camp != '전체' and item['name'] != sel_camp: continue
         
         with st.expander(f"{item['color']}[{item['header']}]", expanded=False):
@@ -309,7 +304,6 @@ if not diag_res.empty:
                     st.caption(r['Diag_Detail'])
                     
                     unique_key = f"btn_{item['name']}_{r['Creative_ID']}_{idx}"
-                    # [수정] 분석하기 버튼 클릭 시 세션 상태 업데이트
                     if st.button("분석하기", key=unique_key):
                         st.session_state['chart_target_creative'] = r['Creative_ID']
                         st.rerun()
@@ -325,24 +319,23 @@ else:
 st.markdown("---")
 st.subheader("2. 지표별 추세 및 상세 분석")
 
-# [핵심 로직 수정] 
-# 기본적으로 target_df (사이드바 필터 적용된 전체 데이터)를 사용.
-# 만약 '분석하기'를 눌러서 chart_target_creative가 설정되어 있다면, 그걸로 한 번 더 필터링.
+# [핵심 로직 수정] 기본은 전체 데이터, '분석하기' 누르면 특정 소재 데이터
 chart_data = target_df.copy()
 is_specific_creative = False
 
 if st.session_state['chart_target_creative']:
-    # 특정 소재 분석 모드
+    # 세션에 소재가 저장되어 있다면 그걸로 필터링
     chart_data = chart_data[chart_data['Creative_ID'] == st.session_state['chart_target_creative']]
     is_specific_creative = True
     
-    st.info(f"🔎 현재 **'{st.session_state['chart_target_creative']}'** 소재를 집중 분석 중입니다.")
+    st.info(f"현재 **'{st.session_state['chart_target_creative']}'** 소재를 집중 분석 중입니다.")
     
     if st.button("전체 목록으로 차트 초기화"):
         st.session_state['chart_target_creative'] = None
         st.rerun()
 else:
-    # 전체 통합 분석 모드
+    # 소재가 없으면(기본) -> 사이드바 필터에 따른 '전체' 데이터 보여줌
+    # 안내 메시지 구성
     desc = []
     if sel_pl: desc.append(f"매체[{','.join(sel_pl)}]")
     if sel_camp != '전체': desc.append(f"캠페인[{sel_camp}]")
@@ -364,9 +357,6 @@ metrics = c_opts.multiselect(
 use_norm = c_norm.checkbox("데이터 정규화 (0-100%)", value=True)
 
 if not chart_data.empty and metrics:
-    # ----------------------------------------------------
-    # [1] 시계열 차트
-    # ----------------------------------------------------
     agg_df = chart_data.set_index('Date').groupby(pd.Grouper(freq=freq_map[freq_option])).agg({
         'Cost': 'sum', 'Impressions': 'sum', 'Clicks': 'sum', 'Conversions': 'sum', 'Conversion_Value': 'sum'
     }).reset_index().sort_values('Date', ascending=False)
@@ -390,7 +380,6 @@ if not chart_data.empty and metrics:
             y_plot = y_data
             hover_temp = f"{m}: %{{y:,.2f}}"
 
-        # Conversions는 검정색으로 강조
         if m == 'Conversions':
             fig.add_trace(go.Scatter(
                 x=plot_df['Date'], y=y_plot, mode='lines+markers', name=m,
@@ -409,9 +398,6 @@ if not chart_data.empty and metrics:
     fig.update_layout(height=450, hovermode='x unified', title=f"추세 분석 ({freq_option} 기준)", plot_bgcolor='white')
     st.plotly_chart(fig, use_container_width=True)
 
-    # ----------------------------------------------------
-    # [2] 상세 데이터 표
-    # ----------------------------------------------------
     st.markdown("#### 상세 데이터")
     display_cols = ['Date', 'CPA', 'Cost', 'Impressions', 'CPM', 'Clicks', 'Conversions', 'CTR', 'CPC', 'CVR', 'ROAS']
     table_df = agg_df[display_cols].copy()
@@ -437,20 +423,26 @@ if not chart_data.empty and metrics:
         }
     )
 
-    # ----------------------------------------------------
-    # [3] 성별/연령 분석 (조건부 표시)
-    # ----------------------------------------------------
+    # -------------------------------------------------------------------
+    # [NEW] 성별/연령 분석 (구글 포함 시 차단 로직 적용)
+    # -------------------------------------------------------------------
     st.divider()
     st.subheader("성별/연령 심층 분석")
     
-    # 알수없음(Unknown) 데이터가 아닌 유효 데이터가 있는지 확인
+    # [조건] 1. 구글이 포함되어 있는지 확인 (sel_pl 활용)
+    has_google = 'Google' in sel_pl
+    
+    # [조건] 2. 데이터 자체가 없는지 확인
     valid_gender_check = chart_data[~chart_data['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
     
-    if valid_gender_check.empty:
-        # 데이터가 없으면 안내 메시지 (구글 등)
-        st.info("현재 선택된 데이터 범위(또는 구글 애즈)는 성별/연령 상세 데이터를 제공하지 않습니다.")
+    if has_google:
+        # 구글이 섞여있으면 무조건 안내 메시지
+        st.warning("⚠️ 구글 애즈가 포함된 조회입니다. 구글은 상세 타겟(성별/연령) 데이터를 제공하지 않으므로 분석이 제한됩니다. (Meta만 선택해주세요)")
+    elif valid_gender_check.empty:
+        # 구글은 아닌데 데이터가 없는 경우
+        st.info("선택된 데이터에 성별/연령 정보가 없습니다.")
     else:
-        # 데이터가 있으면 Aggregation 후 차트 표시
+        # Meta 단독 등 유효한 경우 -> 그래프 표시
         demog_agg = chart_data.groupby(['Age', 'Gender']).agg({
             'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
         }).reset_index()
@@ -460,12 +452,9 @@ if not chart_data.empty and metrics:
         female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
         
         # 제목 설정
-        if is_specific_creative:
-            title_txt = f"{st.session_state['chart_target_creative']} 성별/연령별 전환수"
-        else:
-            title_txt = "성별/연령별 전환수 (통합)"
-            
-        st.markdown(f"#### {title_txt}")
+        title_txt = f"{target_creative} 성별/연령별 전환수 비교" if target_creative else "성별/연령별 전환수 비교 (통합)"
+        # 제목 제거 요청이 있었으므로 주석 처리 (원하시면 주석 해제)
+        # st.markdown(f"#### {title_txt}")
         
         fig_conv = go.Figure()
         fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
@@ -478,7 +467,6 @@ if not chart_data.empty and metrics:
         )
         st.plotly_chart(fig_conv, use_container_width=True)
         
-        # 하단 그리드
         def create_pivot_view(metric, fmt="{:,.0f}"):
             piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
             return piv.style.format(fmt)
