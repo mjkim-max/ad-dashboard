@@ -44,7 +44,9 @@ def load_data():
         '링크 클릭': 'Clicks', '클릭': 'Clicks', '클릭수': 'Clicks',
         '구매': 'Conversions', '전환': 'Conversions', '전환수': 'Conversions',
         '구매 전환값': 'Conversion_Value', '전환 가치': 'Conversion_Value', '전환값': 'Conversion_Value',
-        '상태': 'Status', '소재 상태': 'Status', '광고 상태': 'Status'
+        '상태': 'Status', '소재 상태': 'Status', '광고 상태': 'Status',
+        '성별': 'Gender', 'Gender': 'Gender', 
+        '연령': 'Age', 'Age': 'Age', 'Age Group': 'Age'
     }
 
     try:
@@ -71,11 +73,22 @@ def load_data():
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.replace(',', '').replace('nan', '0')
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    
+    # [데이터 보정]
+    if 'Gender' not in df.columns: df['Gender'] = 'Unknown'
+    if 'Age' not in df.columns: df['Age'] = 'Unknown'
+    
+    # 결측치 처리 (구글 데이터 등)
+    df['Gender'] = df['Gender'].fillna('Unknown')
+    df['Age'] = df['Age'].fillna('Unknown')
+    
+    # 데이터 정규화
+    df['Gender'] = df['Gender'].replace({'male': '남성', 'female': '여성', 'Male': '남성', 'Female': '여성'})
             
     return df
 
 # -----------------------------------------------------------------------------
-# 2. 진단 로직 (절대평가 Only)
+# 2. 진단 로직
 # -----------------------------------------------------------------------------
 def get_stats_for_period(df, days):
     max_date = df['Date'].max()
@@ -102,13 +115,11 @@ def run_diagnosis(df, target_cpa):
     results = []
 
     for _, row in m.iterrows():
-        # 비용 3000원 미만은 진단 제외
         if row['Cost_3'] < 3000: continue
         
         cpa3, cpa7, cpa14 = row['CPA_3'], row['CPA_7'], row['CPA_14']
         status, title, detail = "White", "", ""
 
-        # [Logic: 목표 CPA 기준 절대평가]
         if (cpa14 <= target_cpa) and (cpa7 <= target_cpa) and (cpa3 <= target_cpa):
             status = "Blue"; title = "성과 우수 (Best)"; detail = "14일/7일/3일 모두 목표 달성."
         elif (cpa14 > target_cpa) and (cpa7 > target_cpa) and (cpa3 > target_cpa):
@@ -190,6 +201,12 @@ st.subheader("1. 캠페인 성과 진단")
 diag_base = df_raw[df_raw['Date'] >= (df_raw['Date'].max() - timedelta(days=14))]
 diag_res = run_diagnosis(diag_base, target_cpa_warning)
 
+def get_color_box(color):
+    if color == "Red": return st.error("🚨 종료 추천", icon="🚨")
+    elif color == "Yellow": return st.warning("⚠️ 판별 필요", icon="⚠️")
+    elif color == "Blue": return st.info("💎 성과 우수", icon="💎")
+    else: return st.container(border=True)
+
 if not diag_res.empty:
     camp_grps = diag_res.groupby('Campaign')
     sorted_camps = []
@@ -244,59 +261,37 @@ if not diag_res.empty:
             
             st.divider()
 
-            # [UI 변경] 요청하신 레이아웃 적용 (그리드 형태)
             st.markdown("##### 📂 소재별 진단")
-            
             for idx, (_, r) in enumerate(item['data'].iterrows()):
-                st.markdown(f"#### {r['Creative_ID']}")
-                
-                # [레이아웃] 3일 | 7일 | 14일 | 진단/버튼
-                col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
-                
-                # --- 공통 데이터 포맷팅 함수 ---
-                def format_stat_block(label, cpa, cost, conv):
-                    cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
-                    return f"""
-                    **{label}** **CPA** {cpa_val}원  
-                    **비용** {cost:,.0f}원  
-                    **전환** {conv:,.0f}
-                    """
-
-                with col1:
-                    st.markdown(format_stat_block("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']))
-                
-                with col2:
-                    st.markdown(format_stat_block("7일", r['CPA_7'], r['Cost_7'], r['Conversions_7']))
-                
-                with col3:
-                    st.markdown(format_stat_block("14일", r['CPA_14'], r['Cost_14'], r['Conversions_14']))
-                
-                with col4:
-                    # 진단 결과 (색상 텍스트)
-                    t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange"
-                    st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
-                    st.caption(r['Diag_Detail'])
-                    
-                    # 분석하기 버튼 (유니크 키 적용)
-                    unique_key = f"btn_{item['name']}_{r['Creative_ID']}_{idx}"
-                    if st.button("분석하기", key=unique_key):
-                        st.session_state['chart_target_creative'] = r['Creative_ID']
-                        st.rerun()
-                
-                # 구분선 추가 (각 소재 사이)
-                st.divider()
-
+                with get_color_box(r['Status_Color']):
+                    c1, c2, c3 = st.columns([2.5, 1.0, 0.5])
+                    with c1:
+                        st.markdown(f"**{r['Creative_ID']}**")
+                        def fmt_line(label, cpa, cost, conv):
+                            cpa_val = "∞" if cpa == np.inf else f"{cpa:,.0f}"
+                            return f"**{label}:** CPA [{cpa_val}원] / 비용 {cost:,.0f}원 / 전환 {conv:,.0f}"
+                        st.markdown(fmt_line("3일", r['CPA_3'], r['Cost_3'], r['Conversions_3']))
+                        st.markdown(fmt_line("7일", r['CPA_7'], r['Cost_7'], r['Conversions_7']))
+                        st.markdown(fmt_line("14일", r['CPA_14'], r['Cost_14'], r['Conversions_14']))
+                    with c2:
+                        t_col = "red" if r['Status_Color']=="Red" else "blue" if r['Status_Color']=="Blue" else "orange"
+                        st.markdown(f":{t_col}[**{r['Diag_Title']}**]")
+                        st.caption(r['Diag_Detail'])
+                    with c3:
+                        unique_key = f"btn_{item['name']}_{r['Creative_ID']}_{idx}"
+                        if st.button("분석하기", key=unique_key):
+                            st.session_state['chart_target_creative'] = r['Creative_ID']
+                            st.rerun()
 else:
     st.info("진단 데이터 부족")
 
 # -----------------------------------------------------------------------------
-# 5. 추세 그래프 & 상세 표
+# 5. 추세 그래프 & 상세 표 & 성별/연령 분석
 # -----------------------------------------------------------------------------
 st.markdown("---")
 st.subheader("2. 지표별 추세 및 상세 분석")
 
 target_creative = st.session_state['chart_target_creative']
-# 그래프 데이터는 필터링된 데이터 기반
 chart_data = df_filtered.copy()
 
 if target_creative:
@@ -376,5 +371,57 @@ if not chart_data.empty and metrics:
             "ROAS": st.column_config.NumberColumn("ROAS", format="%.0f%%"),
         }
     )
+
+    # -------------------------------------------------------------------
+    # [NEW] 성별/연령 분석 (조건부 표시: 데이터가 있을 때만)
+    # -------------------------------------------------------------------
+    st.divider()
+    st.subheader("🎯 성별/연령 심층 분석")
+    
+    # 데이터 유효성 검사 (Unknown이 아닌 유효한 성별 데이터가 있는지 확인)
+    valid_gender_check = chart_data[~chart_data['Gender'].isin(['Unknown', 'unknown', '알수없음'])]
+    
+    if valid_gender_check.empty:
+        # 데이터가 없거나(구글 등) 알수없음만 있는 경우
+        st.info("ℹ️ 현재 선택된 소재(또는 구글 애즈)는 성별/연령 상세 데이터를 제공하지 않습니다.")
+    else:
+        # 메타 데이터 등 유효 데이터가 있을 때만 실행
+        age_order = sorted(chart_data['Age'].unique())
+        demog_agg = chart_data.groupby(['Age', 'Gender']).agg({
+            'Cost': 'sum', 'Conversions': 'sum', 'Impressions': 'sum'
+        }).reset_index()
+        demog_agg['CPA'] = np.where(demog_agg['Conversions']>0, demog_agg['Cost']/demog_agg['Conversions'], 0)
+        
+        male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
+        female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
+        
+        st.markdown("#### 📊 성별/연령별 CPA 비교 (낮을수록 좋음)")
+        fig_cpa = go.Figure()
+        fig_cpa.add_trace(go.Bar(x=male_data['Age'], y=male_data['CPA'], name='남성', marker_color='#9EB9F3'))
+        fig_cpa.add_trace(go.Bar(x=female_data['Age'], y=female_data['CPA'], name='여성', marker_color='#F8C8C8'))
+        
+        fig_cpa.update_layout(
+            barmode='group', xaxis_title="연령대", yaxis_title="CPA (원)",
+            height=350, margin=dict(l=20, r=20, t=20, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_cpa, use_container_width=True)
+        
+        st.markdown("#### 🔢 상세 데이터 그리드")
+        def create_pivot_view(metric, fmt="{:,.0f}"):
+            piv = demog_agg.pivot_table(index='Gender', columns='Age', values=metric, aggfunc='sum', fill_value=0)
+            return piv.style.format(fmt)
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**✅ 전환수**")
+            st.dataframe(create_pivot_view('Conversions', "{:,.0f}"), use_container_width=True)
+        with c2:
+            st.markdown("**💸 비용**")
+            st.dataframe(create_pivot_view('Cost', "{:,.0f}"), use_container_width=True)
+        with c3:
+            st.markdown("**👀 노출수**")
+            st.dataframe(create_pivot_view('Impressions', "{:,.0f}"), use_container_width=True)
+
 else:
     st.warning("설정된 기간 내에 데이터가 없습니다. (왼쪽 사이드바의 날짜 범위를 확인해주세요)")
