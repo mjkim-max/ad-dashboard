@@ -152,7 +152,8 @@ target_cpa_opportunity = st.sidebar.number_input("증액추천 CPA", value=50000
 st.sidebar.markdown("---")
 
 st.sidebar.header("기간 설정")
-preset = st.sidebar.selectbox("기간선택", ["오늘", "어제", "최근 3일", "최근 7일", "최근 14일", "최근 30일", "이번 달", "지난 달", "최근 90일"], index=3)
+# [수정] 기본값을 '최근 14일'(index=4)로 설정
+preset = st.sidebar.selectbox("기간선택", ["오늘", "어제", "최근 3일", "최근 7일", "최근 14일", "최근 30일", "이번 달", "지난 달", "최근 90일"], index=4)
 today = datetime.now().date()
 if preset == "오늘": s, e = today, today
 elif preset == "어제": s = today - timedelta(days=1); e = s
@@ -286,7 +287,7 @@ if not diag_res.empty:
                     return f"""
                     <div style="line-height:1.6;">
                     <strong>{label}</strong><br>
-                    CPA <strong>{cpa_val}원</strong><br>
+                    CPA <strong>{cpa:,.0f}원</strong><br>
                     비용 {cost:,.0f}원<br>
                     전환 {conv:,.0f}
                     </div>
@@ -319,7 +320,6 @@ else:
 st.markdown("---")
 st.subheader("2. 지표별 추세 및 상세 분석")
 
-# [변수 정의] target_creative 변수를 먼저 정의 (NameError 방지)
 target_creative = st.session_state['chart_target_creative']
 chart_data = target_df.copy()
 is_specific_creative = False
@@ -347,10 +347,11 @@ c_freq, c_opts, c_norm = st.columns([1, 2, 1])
 freq_option = c_freq.radio("집계 기준", ["1일", "3일", "7일"], horizontal=True)
 freq_map = {"1일": "D", "3일": "3D", "7일": "W"}
 
+# [수정] 기본 지표 및 순서 지정
 metrics = c_opts.multiselect(
     "지표 선택", 
     ['Impressions', 'Clicks', 'CTR', 'CPM', 'CPC', 'CPA', 'Cost', 'Conversions', 'CVR', 'ROAS'], 
-    default=['Conversions', 'Impressions', 'CTR', 'CPM']
+    default=['Conversions', 'CPA', 'CTR', 'Impressions']
 )
 use_norm = c_norm.checkbox("데이터 정규화 (0-100%)", value=True)
 
@@ -369,6 +370,14 @@ if not chart_data.empty and metrics:
     plot_df = agg_df.sort_values('Date', ascending=True)
     fig = go.Figure()
     
+    # [수정] 색상/스타일 매핑 정의
+    style_map = {
+        'Conversions': {'color': 'black', 'width': 3},
+        'CPA': {'color': 'red', 'width': 3},
+        'CTR': {'color': 'blue', 'width': 2},
+        'Impressions': {'color': 'green', 'width': 2}
+    }
+    
     for m in metrics:
         y_data = plot_df[m]
         if use_norm and y_data.max() > 0:
@@ -378,18 +387,14 @@ if not chart_data.empty and metrics:
             y_plot = y_data
             hover_temp = f"{m}: %{{y:,.2f}}"
 
-        if m == 'Conversions':
-            fig.add_trace(go.Scatter(
-                x=plot_df['Date'], y=y_plot, mode='lines+markers', name=m,
-                line=dict(color='black', width=3),
-                marker=dict(size=8, color='black'),
-                customdata=y_data, hovertemplate=hover_temp
-            ))
-        else:
-            fig.add_trace(go.Scatter(
-                x=plot_df['Date'], y=y_plot, mode='lines+markers', name=m,
-                customdata=y_data, hovertemplate=hover_temp
-            ))
+        # 스타일 적용 (없으면 기본값)
+        style = style_map.get(m, {'color': None, 'width': 2})
+
+        fig.add_trace(go.Scatter(
+            x=plot_df['Date'], y=y_plot, mode='lines+markers', name=m,
+            line=dict(color=style['color'], width=style['width']),
+            customdata=y_data, hovertemplate=hover_temp
+        ))
 
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', tickformat="%m-%d")
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
@@ -447,7 +452,7 @@ if not chart_data.empty and metrics:
         male_data = demog_agg[demog_agg['Gender'].str.contains('남성|Male|male', case=False, na=False)]
         female_data = demog_agg[demog_agg['Gender'].str.contains('여성|Female|female', case=False, na=False)]
         
-        # 제목 제거 (요청사항 반영 - 코드에서 완전 삭제)
+        # 제목 제거 (요청사항 반영)
         
         fig_conv = go.Figure()
         fig_conv.add_trace(go.Bar(x=male_data['Age'], y=male_data['Conversions'], name='남성', marker_color='#9EB9F3'))
